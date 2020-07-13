@@ -16,8 +16,6 @@ import * as eventTarget from "./web/event_target.ts";
 import * as formData from "./web/form_data.ts";
 import * as fetchTypes from "./web/fetch.ts";
 import * as headers from "./web/headers.ts";
-import * as navigator from "./web/navigator.ts";
-import * as permissions from "./web/permissions.ts";
 import type * as promiseTypes from "./web/promise.ts";
 import * as queuingStrategy from "./web/streams/queuing_strategy.ts";
 import * as readableStream from "./web/streams/readable_stream.ts";
@@ -232,10 +230,6 @@ export const windowOrWorkerGlobalScopeProperties = {
   File: nonEnumerable(domFile.DomFileImpl),
   FormData: nonEnumerable(formData.FormDataImpl),
   Headers: nonEnumerable(headers.HeadersImpl),
-  navigator: nonEnumerable(new navigator.NavigatorImpl()),
-  Navigator: nonEnumerable(navigator.NavigatorImpl),
-  Permissions: nonEnumerable(permissions.PermissionsImpl),
-  PermissionStatus: nonEnumerable(permissions.PermissionStatusImpl),
   ReadableStream: nonEnumerable(readableStream.ReadableStreamImpl),
   Request: nonEnumerable(request.Request),
   Response: nonEnumerable(fetchTypes.Response),

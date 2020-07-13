@@ -1,7 +1,7 @@
 // Copyright 2018-2020 the Deno authors. All rights reserved. MIT license.
 
-import * as permissionsOps from "../ops/permissions.ts";
-import { EventTargetImpl as EventTarget } from "./event_target.ts";
+import * as permissionsOps from "./ops/permissions.ts";
+import { EventTargetImpl as EventTarget } from "./web/event_target.ts";
 
 const permissionNames = [
   "read",

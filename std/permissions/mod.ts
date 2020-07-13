@@ -61,9 +61,9 @@ export async function grant(
     ? descriptor
     : [descriptor, ...descriptors];
   for (const descriptor of descriptors) {
-    let state = (await navigator.permissions.query(descriptor)).state;
+    let state = (await Deno.permissions.query(descriptor)).state;
     if (state === "prompt") {
-      state = (await navigator.permissions.request(descriptor)).state;
+      state = (await Deno.permissions.request(descriptor)).state;
     }
     if (state === "granted") {
       result.push(descriptor);
@@ -103,7 +103,7 @@ export async function grantOrThrow(
     ? descriptor
     : [descriptor, ...descriptors];
   for (const descriptor of descriptors) {
-    const { state } = await navigator.permissions.request(descriptor);
+    const { state } = await Deno.permissions.request(descriptor);
     if (state !== "granted") {
       denied.push(descriptor);
     }
