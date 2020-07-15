@@ -98,7 +98,36 @@ impl EsIsolate {
       waker: AtomicWaker::new(),
     })));
 
-    EsIsolate(core_isolate)
+    let mut es_isolate = EsIsolate(core_isolate);
+
+    {
+      let state_rc = Self::state(&es_isolate);
+      // let modules_map = &state_rc.borrow().modules;
+      let core_state_rc = CoreIsolate::state(&es_isolate);
+      let core_state = core_state_rc.borrow();
+      let scope = &mut v8::HandleScope::new(&mut *es_isolate.0);
+      let context = core_state.global_context.get(scope).unwrap();
+      let scope = &mut v8::ContextScope::new(scope, context);
+      let global = context.global(scope);
+
+      let modules_key = v8::String::new(scope, "$$modules$$").unwrap();
+      if let Some(modules_map) = global.get(scope, modules_key.into()) {
+        if let Some(modules_map) = modules_map.to_object(scope) {
+          let key = v8::String::new(scope, "http://asdf/main.js").unwrap();
+          if let Some(m) = modules_map.get(scope, key.into()) {
+            eprintln!("{} {}", m.is_object(), m.is_undefined());
+            let m = m.to_object(scope).unwrap();
+            let id_key = v8::String::new(scope, "name").unwrap();
+            let name = m.get(scope, id_key.into()).unwrap().to_string(scope).unwrap().to_rust_string_lossy(scope);
+            let id_key = v8::String::new(scope, "id").unwrap();
+            let id = m.get(scope, id_key.into()).unwrap().integer_value(scope).unwrap();
+            eprintln!("modules map {:#?} {:#?}", name, id);
+          }
+        }
+      }
+    }
+      
+    es_isolate
   }
 
   /// Low-level module creation.
@@ -563,7 +592,42 @@ impl EsIsolate {
 
   pub fn snapshot(&mut self) -> v8::StartupData {
     let state_rc = Self::state(self);
+    {
+      // let state_rc = Self::state(self);
+      let modules_map = &state_rc.borrow().modules;
+      let core_state_rc = CoreIsolate::state(self);
+      let core_state = core_state_rc.borrow();
+      let scope = &mut v8::HandleScope::new(&mut *self.0);
+      let context = core_state.global_context.get(scope).unwrap();
+      let scope = &mut v8::ContextScope::new(scope, context);
+      let global = context.global(scope);
+
+      let modules_key = v8::String::new(scope, "$$modules$$").unwrap();
+      let modules_val = v8::Object::new(scope);
+
+      for (mod_id, mod_info) in modules_map.info.iter() {
+        let mod_val = v8::Object::new(scope);
+        let mod_handle = mod_info.handle.get(scope).unwrap();
+        let id_key = v8::String::new(scope, "id").unwrap();
+        let id_val = v8::Number::new(scope, *mod_id as f64);
+        mod_val.set(scope, id_key.into(), id_val.into());
+        let name_key = v8::String::new(scope, "name").unwrap();
+        let name_val = v8::String::new(scope, &mod_info.name).unwrap();
+        mod_val.set(scope, name_key.into(), name_val.into());
+        let handle_key = v8::String::new(scope, "handle").unwrap();
+        let mod_handle = unsafe {
+          std::mem::transmute::<v8::Local<'_, v8::Module>, v8::Local<'_, v8::Value>>(mod_handle)
+        };
+        mod_val.set(scope, handle_key.into(), mod_handle.into());
+        modules_val.set(scope, name_val.into(), mod_val.into());
+
+      }
+      global.set(scope, modules_key.into(), modules_val.into());
+
+    }
+    
     std::mem::take(&mut state_rc.borrow_mut().modules);
+
     CoreIsolate::snapshot(self)
   }
 
@@ -627,6 +691,7 @@ impl EsIsolateState {
     specifier: &str,
     referrer_id: ModuleId,
   ) -> ModuleId {
+    eprintln!("resolve module cb {}", specifier);
     let referrer = self.modules.get_name(referrer_id).unwrap();
     let specifier = self
       .loader

@@ -687,6 +687,7 @@ pub fn module_resolve_callback<'s>(
   specifier: v8::Local<'s, v8::String>,
   referrer: v8::Local<'s, v8::Module>,
 ) -> Option<v8::Local<'s, v8::Module>> {
+  eprintln!("module resolve callback");
   let scope = &mut unsafe { v8::CallbackScope::new(context) };
 
   let state_rc = EsIsolate::state(scope);

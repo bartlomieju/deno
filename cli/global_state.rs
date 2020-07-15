@@ -214,6 +214,7 @@ impl GlobalState {
     module_specifier: ModuleSpecifier,
     _maybe_referrer: Option<ModuleSpecifier>,
   ) -> Result<CompiledModule, ErrBox> {
+    eprintln!("fetch compiled module {}", module_specifier);
     let state1 = self.clone();
     let module_specifier = module_specifier.clone();
 
