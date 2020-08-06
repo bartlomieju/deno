@@ -4,7 +4,6 @@ use crate::doc::Location;
 use crate::file_fetcher::map_file_extension;
 use crate::file_fetcher::SourceFile;
 use crate::file_fetcher::SourceFileFetcher;
-use crate::import_map::ImportMap;
 use crate::msg::MediaType;
 use crate::op_error::OpError;
 use crate::permissions::Permissions;
@@ -95,7 +94,6 @@ fn validate_no_file_from_remote(
 // https://github.com/denoland/deno/issues/6133
 fn resolve_imports_and_references(
   referrer: ModuleSpecifier,
-  maybe_import_map: Option<&ImportMap>,
   import_descs: Vec<ImportDesc>,
   ref_descs: Vec<TsReferenceDesc>,
 ) -> Result<(Vec<ImportDescriptor>, Vec<ReferenceDescriptor>), ErrBox> {
@@ -103,20 +101,10 @@ fn resolve_imports_and_references(
   let mut references = vec![];
 
   for import_desc in import_descs {
-    let maybe_resolved = if let Some(import_map) = maybe_import_map.as_ref() {
-      import_map.resolve(&import_desc.specifier, &referrer.to_string())?
-    } else {
-      None
-    };
-
-    let resolved_specifier = if let Some(resolved) = maybe_resolved {
-      resolved
-    } else {
-      ModuleSpecifier::resolve_import(
-        &import_desc.specifier,
-        &referrer.to_string(),
-      )?
-    };
+    let resolved_specifier = ModuleSpecifier::resolve_import(
+      &import_desc.specifier,
+      &referrer.to_string(),
+    )?;
 
     let resolved_type_directive =
       if let Some(types_specifier) = import_desc.deno_types.as_ref() {
@@ -245,7 +233,6 @@ type SourceFileFuture =
 pub struct ModuleGraphLoader {
   permissions: Permissions,
   file_fetcher: SourceFileFetcher,
-  maybe_import_map: Option<ImportMap>,
   pending_downloads: FuturesUnordered<SourceFileFuture>,
   has_downloaded: HashSet<ModuleSpecifier>,
   graph: ModuleGraph,
@@ -256,7 +243,6 @@ pub struct ModuleGraphLoader {
 impl ModuleGraphLoader {
   pub fn new(
     file_fetcher: SourceFileFetcher,
-    maybe_import_map: Option<ImportMap>,
     permissions: Permissions,
     is_dyn_import: bool,
     analyze_dynamic_imports: bool,
@@ -264,7 +250,6 @@ impl ModuleGraphLoader {
     Self {
       file_fetcher,
       permissions,
-      maybe_import_map,
       pending_downloads: FuturesUnordered::new(),
       has_downloaded: HashSet::new(),
       graph: ModuleGraph::new(),
@@ -346,7 +331,6 @@ impl ModuleGraphLoader {
     )?;
     let (imports, references) = resolve_imports_and_references(
       module_specifier.clone(),
-      self.maybe_import_map.as_ref(),
       raw_imports,
       raw_references,
     )?;
@@ -512,7 +496,6 @@ impl ModuleGraphLoader {
       )?;
       let (imports_, references) = resolve_imports_and_references(
         module_specifier.clone(),
-        self.maybe_import_map.as_ref(),
         raw_imports,
         raw_refs,
       )?;
@@ -590,7 +573,6 @@ mod tests {
     let global_state = GlobalState::new(Default::default()).unwrap();
     let mut graph_loader = ModuleGraphLoader::new(
       global_state.file_fetcher.clone(),
-      None,
       Permissions::allow_all(),
       false,
       false,

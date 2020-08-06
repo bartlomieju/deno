@@ -105,7 +105,6 @@ project (`npm init -y` as necessary), then add the following block to your
       {
         "name": "typescript-deno-plugin",
         "enable": true, // default is `true`
-        "importmap": "import_map.json"
       }
     ]
   }

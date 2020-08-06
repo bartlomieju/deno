@@ -103,7 +103,6 @@ pub struct Flags {
   pub cached_only: bool,
   pub config_path: Option<String>,
   pub ignore: Vec<String>,
-  pub import_map_path: Option<String>,
   pub inspect: Option<SocketAddr>,
   pub inspect_brk: Option<SocketAddr>,
   pub lock: Option<String>,
@@ -393,7 +392,6 @@ fn install_parse(flags: &mut Flags, matches: &clap::ArgMatches) {
 fn bundle_parse(flags: &mut Flags, matches: &clap::ArgMatches) {
   ca_file_arg_parse(flags, matches);
   config_arg_parse(flags, matches);
-  importmap_arg_parse(flags, matches);
   unstable_arg_parse(flags, matches);
   lock_args_parse(flags, matches);
 
@@ -478,7 +476,6 @@ fn info_parse(flags: &mut Flags, matches: &clap::ArgMatches) {
 fn cache_parse(flags: &mut Flags, matches: &clap::ArgMatches) {
   reload_arg_parse(flags, matches);
   lock_args_parse(flags, matches);
-  importmap_arg_parse(flags, matches);
   config_arg_parse(flags, matches);
   no_check_arg_parse(flags, matches);
   no_remote_arg_parse(flags, matches);
@@ -506,7 +503,6 @@ fn lock_args_parse(flags: &mut Flags, matches: &clap::ArgMatches) {
 fn run_test_args_parse(flags: &mut Flags, matches: &clap::ArgMatches) {
   reload_arg_parse(flags, matches);
   lock_args_parse(flags, matches);
-  importmap_arg_parse(flags, matches);
   config_arg_parse(flags, matches);
   v8_flags_arg_parse(flags, matches);
   no_check_arg_parse(flags, matches);
@@ -761,7 +757,6 @@ fn bundle_subcommand<'a, 'b>() -> App<'a, 'b> {
     )
     .arg(Arg::with_name("out_file").takes_value(true).required(false))
     .arg(ca_file_arg())
-    .arg(importmap_arg())
     .arg(unstable_arg())
     .arg(config_arg())
     .about("Bundle module and dependencies into single file")
@@ -864,7 +859,6 @@ fn cache_subcommand<'a, 'b>() -> App<'a, 'b> {
     .arg(reload_arg())
     .arg(lock_arg())
     .arg(lock_write_arg())
-    .arg(importmap_arg())
     .arg(unstable_arg())
     .arg(config_arg())
     .arg(no_check_arg())
@@ -1082,7 +1076,6 @@ fn permission_args<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
 
 fn run_test_args<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
   permission_args(inspect_args(app))
-    .arg(importmap_arg())
     .arg(unstable_arg())
     .arg(reload_arg())
     .arg(config_arg())
@@ -1326,25 +1319,6 @@ fn reload_arg_parse(flags: &mut Flags, matches: &ArgMatches) {
       flags.reload = false;
     }
   }
-}
-
-fn importmap_arg<'a, 'b>() -> Arg<'a, 'b> {
-  Arg::with_name("importmap")
-    .long("importmap")
-    .value_name("FILE")
-    .help("UNSTABLE: Load import map file")
-    .long_help(
-      "UNSTABLE:
-Load import map file
-Docs: https://deno.land/manual/linking_to_external_code/import_maps
-Specification: https://wicg.github.io/import-maps/
-Examples: https://github.com/WICG/import-maps#the-import-map",
-    )
-    .takes_value(true)
-}
-
-fn importmap_arg_parse(flags: &mut Flags, matches: &clap::ArgMatches) {
-  flags.import_map_path = matches.value_of("importmap").map(ToOwned::to_owned);
 }
 
 fn v8_flags_arg<'a, 'b>() -> Arg<'a, 'b> {
@@ -2222,46 +2196,6 @@ mod tests {
         },
         lock_write: true,
         lock: Some("lock.json".to_string()),
-        ..Flags::default()
-      }
-    );
-  }
-
-  #[test]
-  fn run_importmap() {
-    let r = flags_from_vec_safe(svec![
-      "deno",
-      "run",
-      "--importmap=importmap.json",
-      "script.ts"
-    ]);
-    assert_eq!(
-      r.unwrap(),
-      Flags {
-        subcommand: DenoSubcommand::Run {
-          script: "script.ts".to_string(),
-        },
-        import_map_path: Some("importmap.json".to_owned()),
-        ..Flags::default()
-      }
-    );
-  }
-
-  #[test]
-  fn cache_importmap() {
-    let r = flags_from_vec_safe(svec![
-      "deno",
-      "cache",
-      "--importmap=importmap.json",
-      "script.ts"
-    ]);
-    assert_eq!(
-      r.unwrap(),
-      Flags {
-        subcommand: DenoSubcommand::Cache {
-          files: svec!["script.ts"],
-        },
-        import_map_path: Some("importmap.json".to_owned()),
         ..Flags::default()
       }
     );

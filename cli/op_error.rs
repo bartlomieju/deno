@@ -14,7 +14,6 @@
 //!   But Diagnostics are compile-time type errors, whereas JSErrors are runtime
 //!   exceptions.
 
-use crate::import_map::ImportMapError;
 use crate::swc_util::SwcDiagnosticBuffer;
 use deno_core::ErrBox;
 use deno_core::ModuleResolutionError;
@@ -119,21 +118,6 @@ impl Error for OpError {}
 impl fmt::Display for OpError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.pad(self.msg.as_str())
-  }
-}
-
-impl From<ImportMapError> for OpError {
-  fn from(error: ImportMapError) -> Self {
-    OpError::from(&error)
-  }
-}
-
-impl From<&ImportMapError> for OpError {
-  fn from(error: &ImportMapError) -> Self {
-    Self {
-      kind: ErrorKind::Other,
-      msg: error.to_string(),
-    }
   }
 }
 
@@ -417,7 +401,6 @@ impl From<ErrBox> for OpError {
           .map(|e| OpError::new(e.kind, e.msg.to_string()))
       })
       .or_else(|| error.downcast_ref::<reqwest::Error>().map(|e| e.into()))
-      .or_else(|| error.downcast_ref::<ImportMapError>().map(|e| e.into()))
       .or_else(|| error.downcast_ref::<io::Error>().map(|e| e.into()))
       .or_else(|| {
         error
@@ -458,12 +441,6 @@ mod tests {
     url::ParseError::EmptyHost
   }
 
-  fn import_map_error() -> ImportMapError {
-    ImportMapError {
-      msg: "an import map error".to_string(),
-    }
-  }
-
   #[test]
   fn test_simple_error() {
     let err = OpError::not_found("foo".to_string());
@@ -486,13 +463,6 @@ mod tests {
   }
 
   // TODO find a way to easily test tokio errors and unix errors
-
-  #[test]
-  fn test_import_map_error() {
-    let err = OpError::from(import_map_error());
-    assert_eq!(err.kind, ErrorKind::Other);
-    assert_eq!(err.to_string(), "an import map error");
-  }
 
   #[test]
   fn test_bad_resource() {

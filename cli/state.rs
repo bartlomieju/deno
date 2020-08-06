@@ -3,7 +3,6 @@ use crate::file_fetcher::SourceFileFetcher;
 use crate::global_state::GlobalState;
 use crate::global_timer::GlobalTimer;
 use crate::http_util::create_http_client;
-use crate::import_map::ImportMap;
 use crate::metrics::Metrics;
 use crate::op_error::OpError;
 use crate::ops::JsonOp;
@@ -50,9 +49,6 @@ pub struct StateInner {
   pub global_state: GlobalState,
   pub permissions: Permissions,
   pub main_module: ModuleSpecifier,
-  /// When flags contains a `.import_map_path` option, the content of the
-  /// import map file will be resolved and set.
-  pub import_map: Option<ImportMap>,
   pub metrics: Metrics,
   pub global_timer: GlobalTimer,
   pub workers: HashMap<u32, (JoinHandle<()>, WebWorkerHandle)>,
@@ -227,16 +223,8 @@ impl ModuleLoader for State {
     &self,
     specifier: &str,
     referrer: &str,
-    is_main: bool,
+    _is_main: bool,
   ) -> Result<ModuleSpecifier, ErrBox> {
-    if !is_main {
-      if let Some(import_map) = &self.borrow().import_map {
-        let result = import_map.resolve(specifier, referrer)?;
-        if let Some(r) = result {
-          return Ok(r);
-        }
-      }
-    }
     let module_specifier =
       ModuleSpecifier::resolve_import(specifier, referrer)?;
 
@@ -283,7 +271,6 @@ impl ModuleLoader for State {
     let module_specifier = module_specifier.clone();
     let state = self.borrow();
     let target_lib = state.target_lib.clone();
-    let maybe_import_map = state.import_map.clone();
     // Only "main" module is loaded without permission check,
     // ie. module that is associated with "is_main" state
     // and is not a dynamic import.
@@ -312,7 +299,6 @@ impl ModuleLoader for State {
           target_lib,
           permissions,
           is_dyn_import,
-          maybe_import_map,
         )
         .await
     }
@@ -326,7 +312,6 @@ impl State {
     global_state: GlobalState,
     shared_permissions: Option<Permissions>,
     main_module: ModuleSpecifier,
-    maybe_import_map: Option<ImportMap>,
     is_internal: bool,
   ) -> Result<Self, ErrBox> {
     let seeded_rng = match global_state.flags.seed {
@@ -346,7 +331,6 @@ impl State {
       global_state,
       main_module,
       permissions,
-      import_map: maybe_import_map,
       metrics: Metrics::default(),
       global_timer: GlobalTimer::new(),
       workers: HashMap::new(),
@@ -385,7 +369,6 @@ impl State {
       global_state,
       main_module,
       permissions,
-      import_map: None,
       metrics: Metrics::default(),
       global_timer: GlobalTimer::new(),
       workers: HashMap::new(),
@@ -483,7 +466,6 @@ impl State {
       GlobalState::mock(vec!["deno".to_string()], None),
       None,
       module_specifier,
-      None,
       false,
     )
     .unwrap()

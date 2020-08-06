@@ -288,7 +288,6 @@ impl MainWorker {
       global_state.clone(),
       None,
       main_module,
-      global_state.maybe_import_map.clone(),
       false,
     )?;
     let mut worker = MainWorker::new(
@@ -349,7 +348,7 @@ mod tests {
       ModuleSpecifier::resolve_url_or_path(&p.to_string_lossy()).unwrap();
     let global_state = GlobalState::new(flags::Flags::default()).unwrap();
     let state =
-      State::new(global_state, None, module_specifier.clone(), None, false)
+      State::new(global_state, None, module_specifier.clone(), false)
         .unwrap();
     let state_ = state.clone();
     tokio_util::run_basic(async move {
@@ -379,7 +378,7 @@ mod tests {
       ModuleSpecifier::resolve_url_or_path(&p.to_string_lossy()).unwrap();
     let global_state = GlobalState::new(flags::Flags::default()).unwrap();
     let state =
-      State::new(global_state, None, module_specifier.clone(), None, false)
+      State::new(global_state, None, module_specifier.clone(), false)
         .unwrap();
     let state_ = state.clone();
     tokio_util::run_basic(async move {
@@ -420,7 +419,6 @@ mod tests {
       global_state.clone(),
       None,
       module_specifier.clone(),
-      None,
       false,
     )
     .unwrap();

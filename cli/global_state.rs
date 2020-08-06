@@ -3,14 +3,12 @@ use crate::deno_dir;
 use crate::file_fetcher::SourceFileFetcher;
 use crate::flags;
 use crate::http_cache;
-use crate::import_map::ImportMap;
 use crate::lockfile::Lockfile;
 use crate::module_graph::ModuleGraphFile;
 use crate::module_graph::ModuleGraphLoader;
 use crate::msg;
 use crate::msg::MediaType;
 use crate::permissions::Permissions;
-use crate::state::exit_unstable;
 use crate::tsc::CompiledModule;
 use crate::tsc::TargetLib;
 use crate::tsc::TsCompiler;
@@ -40,7 +38,6 @@ pub struct GlobalStateInner {
   pub ts_compiler: TsCompiler,
   pub lockfile: Option<Mutex<Lockfile>>,
   pub compiler_starts: AtomicUsize,
-  pub maybe_import_map: Option<ImportMap>,
   compile_lock: AsyncMutex<()>,
 }
 
@@ -84,17 +81,6 @@ impl GlobalState {
       None
     };
 
-    let maybe_import_map: Option<ImportMap> =
-      match flags.import_map_path.as_ref() {
-        None => None,
-        Some(file_path) => {
-          if !flags.unstable {
-            exit_unstable("--importmap")
-          }
-          Some(ImportMap::load(file_path)?)
-        }
-      };
-
     let inner = GlobalStateInner {
       dir,
       permissions: Permissions::from_flags(&flags),
@@ -102,7 +88,6 @@ impl GlobalState {
       file_fetcher,
       ts_compiler,
       lockfile,
-      maybe_import_map,
       compiler_starts: AtomicUsize::new(0),
       compile_lock: AsyncMutex::new(()),
     };
@@ -120,7 +105,6 @@ impl GlobalState {
     target_lib: TargetLib,
     permissions: Permissions,
     is_dyn_import: bool,
-    maybe_import_map: Option<ImportMap>,
   ) -> Result<(), ErrBox> {
     let module_specifier = module_specifier.clone();
 
@@ -130,7 +114,6 @@ impl GlobalState {
 
     let mut module_graph_loader = ModuleGraphLoader::new(
       self.file_fetcher.clone(),
-      maybe_import_map,
       permissions.clone(),
       is_dyn_import,
       false,

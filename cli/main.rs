@@ -40,7 +40,6 @@ pub mod global_state;
 mod global_timer;
 pub mod http_cache;
 mod http_util;
-mod import_map;
 mod inspector;
 pub mod installer;
 mod js;
@@ -216,7 +215,6 @@ async fn print_file_info(
       TargetLib::Main,
       Permissions::allow_all(),
       false,
-      global_state.maybe_import_map.clone(),
     )
     .await?;
   global_state

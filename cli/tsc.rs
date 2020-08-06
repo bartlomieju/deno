@@ -210,7 +210,6 @@ fn create_compiler_worker(
     global_state.clone(),
     Some(permissions),
     entry_point,
-    None,
     true,
   )
   .expect("Unable to create worker state");
@@ -646,7 +645,6 @@ impl TsCompiler {
     let permissions = Permissions::allow_all();
     let mut module_graph_loader = ModuleGraphLoader::new(
       self.file_fetcher.clone(),
-      global_state.maybe_import_map.clone(),
       permissions.clone(),
       false,
       true,
@@ -1076,7 +1074,6 @@ async fn create_runtime_module_graph(
   let mut root_names = vec![];
   let mut module_graph_loader = ModuleGraphLoader::new(
     global_state.file_fetcher.clone(),
-    None,
     permissions,
     false,
     false,
@@ -1587,7 +1584,6 @@ mod tests {
 
     let mut module_graph_loader = ModuleGraphLoader::new(
       file_fetcher.clone(),
-      None,
       Permissions::allow_all(),
       false,
       false,
@@ -1615,6 +1611,7 @@ mod tests {
         false,
       )
       .await;
+      eprint!("result {:#?}", result);
     assert!(result.is_ok());
     let compiled_file = ts_compiler.get_compiled_module(&out.url).unwrap();
     let source_code = compiled_file.code;
@@ -1663,7 +1660,6 @@ mod tests {
 
     let mut module_graph_loader = ModuleGraphLoader::new(
       file_fetcher.clone(),
-      None,
       Permissions::allow_all(),
       false,
       false,
