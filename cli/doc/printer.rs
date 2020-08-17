@@ -67,10 +67,10 @@ impl<'a> DocPrinter<'a> {
       writeln!(w)?;
 
       match node.kind {
-        DocNodeKind::Class => self.format_class(w, node)?,
-        DocNodeKind::Enum => self.format_enum(w, node)?,
-        DocNodeKind::Interface => self.format_interface(w, node)?,
-        DocNodeKind::Namespace => self.format_namespace(w, node)?,
+        DocNodeKind::Class(_) => self.format_class(w, node)?,
+        DocNodeKind::Enum(_) => self.format_enum(w, node)?,
+        DocNodeKind::Interface(_) => self.format_interface(w, node)?,
+        DocNodeKind::Namespace(_) => self.format_namespace(w, node)?,
         _ => {}
       }
     }
@@ -80,14 +80,14 @@ impl<'a> DocPrinter<'a> {
 
   fn kind_order(&self, kind: &doc::DocNodeKind) -> i64 {
     match kind {
-      DocNodeKind::Function => 0,
-      DocNodeKind::Variable => 1,
-      DocNodeKind::Class => 2,
-      DocNodeKind::Enum => 3,
-      DocNodeKind::Interface => 4,
-      DocNodeKind::TypeAlias => 5,
-      DocNodeKind::Namespace => 6,
-      DocNodeKind::Import => 7,
+      DocNodeKind::Function(_) => 0,
+      DocNodeKind::Variable(_) => 1,
+      DocNodeKind::Class(_) => 2,
+      DocNodeKind::Enum(_) => 3,
+      DocNodeKind::Interface(_) => 4,
+      DocNodeKind::TypeAlias(_) => 5,
+      DocNodeKind::Namespace(_) => 6,
+      DocNodeKind::Import(_) => 7,
     }
   }
 
@@ -98,20 +98,20 @@ impl<'a> DocPrinter<'a> {
     indent: i64,
   ) -> FmtResult {
     match node.kind {
-      DocNodeKind::Function => self.format_function_signature(w, node, indent),
-      DocNodeKind::Variable => self.format_variable_signature(w, node, indent),
-      DocNodeKind::Class => self.format_class_signature(w, node, indent),
-      DocNodeKind::Enum => self.format_enum_signature(w, node, indent),
-      DocNodeKind::Interface => {
+      DocNodeKind::Function(_) => self.format_function_signature(w, node, indent),
+      DocNodeKind::Variable(_) => self.format_variable_signature(w, node, indent),
+      DocNodeKind::Class(_) => self.format_class_signature(w, node, indent),
+      DocNodeKind::Enum(_) => self.format_enum_signature(w, node, indent),
+      DocNodeKind::Interface(_) => {
         self.format_interface_signature(w, node, indent)
       }
-      DocNodeKind::TypeAlias => {
+      DocNodeKind::TypeAlias(_) => {
         self.format_type_alias_signature(w, node, indent)
       }
-      DocNodeKind::Namespace => {
+      DocNodeKind::Namespace(_) => {
         self.format_namespace_signature(w, node, indent)
       }
-      DocNodeKind::Import => Ok(()),
+      DocNodeKind::Import(_) => Ok(()),
     }
   }
 
@@ -134,7 +134,10 @@ impl<'a> DocPrinter<'a> {
     w: &mut Formatter<'_>,
     node: &doc::DocNode,
   ) -> FmtResult {
-    let class_def = node.class_def.as_ref().unwrap();
+    let class_def = match &node.kind {
+      DocNodeKind::Class(class_def) => class_def,
+      _ => unreachable!()
+    };
     for node in &class_def.constructors {
       writeln!(w, "{}{}", Indent(1), node,)?;
       if let Some(js_doc) = &node.js_doc {
@@ -176,7 +179,10 @@ impl<'a> DocPrinter<'a> {
     w: &mut Formatter<'_>,
     node: &doc::DocNode,
   ) -> FmtResult {
-    let enum_def = node.enum_def.as_ref().unwrap();
+    let enum_def = match &node.kind {
+      DocNodeKind::r#Enum(enum_def) => enum_def,
+      _ => unreachable!(),
+    };
     for member in &enum_def.members {
       writeln!(w, "{}{}", Indent(1), colors::bold(&member.name))?;
     }
@@ -188,8 +194,10 @@ impl<'a> DocPrinter<'a> {
     w: &mut Formatter<'_>,
     node: &doc::DocNode,
   ) -> FmtResult {
-    let interface_def = node.interface_def.as_ref().unwrap();
-
+    let interface_def = match &node.kind {
+      DocNodeKind::Interface(interface_def) => interface_def,
+      _ => unreachable!(),
+    };
     for property_def in &interface_def.properties {
       writeln!(w, "{}{}", Indent(1), property_def)?;
       if let Some(js_doc) = &property_def.js_doc {
@@ -213,7 +221,11 @@ impl<'a> DocPrinter<'a> {
     w: &mut Formatter<'_>,
     node: &doc::DocNode,
   ) -> FmtResult {
-    let elements = &node.namespace_def.as_ref().unwrap().elements;
+    let namespace_def = match &node.kind {
+      DocNodeKind::Namespace(ns_def) => ns_def,
+      _ => unreachable!(),
+    };
+    let elements = &namespace_def.elements;
     for node in elements {
       self.format_signature(w, &node, 1)?;
       if let Some(js_doc) = &node.js_doc {
@@ -229,7 +241,10 @@ impl<'a> DocPrinter<'a> {
     node: &doc::DocNode,
     indent: i64,
   ) -> FmtResult {
-    let class_def = node.class_def.as_ref().unwrap();
+    let class_def = match &node.kind {
+      DocNodeKind::Class(class_def) => class_def,
+      _ => unreachable!(),
+    };
     write!(
       w,
       "{}{}{} {}",
@@ -290,7 +305,10 @@ impl<'a> DocPrinter<'a> {
     node: &doc::DocNode,
     indent: i64,
   ) -> FmtResult {
-    let function_def = node.function_def.as_ref().unwrap();
+    let function_def = match &node.kind {
+      DocNodeKind::Function(function_def) => function_def,
+      _ => unreachable!(),
+    };
     write!(
       w,
       "{}{}{}{} {}",
@@ -324,7 +342,10 @@ impl<'a> DocPrinter<'a> {
     node: &doc::DocNode,
     indent: i64,
   ) -> FmtResult {
-    let interface_def = node.interface_def.as_ref().unwrap();
+    let interface_def = match &node.kind {
+      DocNodeKind::Interface(i_def) => i_def,
+      _ => unreachable!(),
+    };
     write!(
       w,
       "{}{} {}",
@@ -359,7 +380,10 @@ impl<'a> DocPrinter<'a> {
     node: &doc::DocNode,
     indent: i64,
   ) -> FmtResult {
-    let type_alias_def = node.type_alias_def.as_ref().unwrap();
+    let type_alias_def = match &node.kind {
+      DocNodeKind::TypeAlias(ta_def) => ta_def,
+      _ => unreachable!(),
+    };
     write!(
       w,
       "{}{} {}",
@@ -400,7 +424,10 @@ impl<'a> DocPrinter<'a> {
     node: &doc::DocNode,
     indent: i64,
   ) -> FmtResult {
-    let variable_def = node.variable_def.as_ref().unwrap();
+    let variable_def = match &node.kind {
+      DocNodeKind::Variable(var_def) => var_def,
+      _ => unreachable!(),
+    };
     write!(
       w,
       "{}{} {}",

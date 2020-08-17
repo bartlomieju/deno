@@ -1,18 +1,19 @@
 // Copyright 2018-2020 the Deno authors. All rights reserved. MIT license.
 use serde::Serialize;
 
-#[derive(Debug, PartialEq, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "def")]
 pub enum DocNodeKind {
-  Function,
-  Variable,
-  Class,
-  Enum,
-  Interface,
-  TypeAlias,
-  Namespace,
-  Import,
+  Function(super::function::FunctionDef),
+  Variable(super::variable::VariableDef),
+  Class(super::class::ClassDef),
+  Enum(super::r#enum::EnumDef),
+  Interface(super::interface::InterfaceDef),
+  TypeAlias(super::type_alias::TypeAliasDef),
+  Namespace(super::namespace::NamespaceDef),
+  Import(ImportDef),
 }
+
 
 #[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct Location {
@@ -82,30 +83,6 @@ pub struct DocNode {
   pub name: String,
   pub location: Location,
   pub js_doc: Option<String>,
-
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub function_def: Option<super::function::FunctionDef>,
-
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub variable_def: Option<super::variable::VariableDef>,
-
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub enum_def: Option<super::r#enum::EnumDef>,
-
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub class_def: Option<super::class::ClassDef>,
-
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub type_alias_def: Option<super::type_alias::TypeAliasDef>,
-
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub namespace_def: Option<super::namespace::NamespaceDef>,
-
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub interface_def: Option<super::interface::InterfaceDef>,
-
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub import_def: Option<ImportDef>,
 }
 
 impl DocNode {
@@ -116,18 +93,10 @@ impl DocNode {
     fn_def: super::function::FunctionDef,
   ) -> Self {
     Self {
-      kind: DocNodeKind::Function,
+      kind: DocNodeKind::Function(fn_def),
       name,
       location,
       js_doc,
-      function_def: Some(fn_def),
-      variable_def: None,
-      enum_def: None,
-      class_def: None,
-      type_alias_def: None,
-      namespace_def: None,
-      interface_def: None,
-      import_def: None,
     }
   }
 
@@ -138,18 +107,10 @@ impl DocNode {
     var_def: super::variable::VariableDef,
   ) -> Self {
     Self {
-      kind: DocNodeKind::Variable,
+      kind: DocNodeKind::Variable(var_def),
       name,
       location,
       js_doc,
-      function_def: None,
-      variable_def: Some(var_def),
-      enum_def: None,
-      class_def: None,
-      type_alias_def: None,
-      namespace_def: None,
-      interface_def: None,
-      import_def: None,
     }
   }
 
@@ -160,18 +121,10 @@ impl DocNode {
     enum_def: super::r#enum::EnumDef,
   ) -> Self {
     Self {
-      kind: DocNodeKind::Enum,
+      kind: DocNodeKind::Enum(enum_def),
       name,
       location,
       js_doc,
-      function_def: None,
-      variable_def: None,
-      enum_def: Some(enum_def),
-      class_def: None,
-      type_alias_def: None,
-      namespace_def: None,
-      interface_def: None,
-      import_def: None,
     }
   }
 
@@ -182,18 +135,10 @@ impl DocNode {
     class_def: super::class::ClassDef,
   ) -> Self {
     Self {
-      kind: DocNodeKind::Class,
+      kind: DocNodeKind::Class(class_def),
       name,
       location,
       js_doc,
-      function_def: None,
-      variable_def: None,
-      enum_def: None,
-      class_def: Some(class_def),
-      type_alias_def: None,
-      namespace_def: None,
-      interface_def: None,
-      import_def: None,
     }
   }
 
@@ -204,18 +149,10 @@ impl DocNode {
     type_alias_def: super::type_alias::TypeAliasDef,
   ) -> Self {
     Self {
-      kind: DocNodeKind::TypeAlias,
+      kind: DocNodeKind::TypeAlias(type_alias_def),
       name,
       location,
       js_doc,
-      function_def: None,
-      variable_def: None,
-      enum_def: None,
-      class_def: None,
-      type_alias_def: Some(type_alias_def),
-      namespace_def: None,
-      interface_def: None,
-      import_def: None,
     }
   }
 
@@ -226,18 +163,10 @@ impl DocNode {
     namespace_def: super::namespace::NamespaceDef,
   ) -> Self {
     Self {
-      kind: DocNodeKind::Namespace,
+      kind: DocNodeKind::Namespace(namespace_def),
       name,
       location,
       js_doc,
-      function_def: None,
-      variable_def: None,
-      enum_def: None,
-      class_def: None,
-      type_alias_def: None,
-      namespace_def: Some(namespace_def),
-      interface_def: None,
-      import_def: None,
     }
   }
 
@@ -248,18 +177,10 @@ impl DocNode {
     interface_def: super::interface::InterfaceDef,
   ) -> Self {
     Self {
-      kind: DocNodeKind::Interface,
+      kind: DocNodeKind::Interface(interface_def),
       name,
       location,
       js_doc,
-      function_def: None,
-      variable_def: None,
-      enum_def: None,
-      class_def: None,
-      type_alias_def: None,
-      namespace_def: None,
-      interface_def: Some(interface_def),
-      import_def: None,
     }
   }
 
@@ -270,18 +191,10 @@ impl DocNode {
     import_def: ImportDef,
   ) -> Self {
     Self {
-      kind: DocNodeKind::Import,
+      kind: DocNodeKind::Import(import_def),
       name,
       location,
       js_doc,
-      function_def: None,
-      variable_def: None,
-      enum_def: None,
-      class_def: None,
-      type_alias_def: None,
-      namespace_def: None,
-      interface_def: None,
-      import_def: Some(import_def),
     }
   }
 }

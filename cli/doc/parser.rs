@@ -21,7 +21,6 @@ use super::namespace::NamespaceDef;
 use super::node;
 use super::node::ModuleDoc;
 use super::DocNode;
-use super::DocNodeKind;
 use super::ImportDef;
 use super::Location;
 
@@ -126,24 +125,16 @@ impl DocParser {
             let ns_def = NamespaceDef {
               elements: doc_nodes.clone(),
             };
-            let ns_doc_node = DocNode {
-              kind: DocNodeKind::Namespace,
-              name: ns_name.to_string(),
-              location: Location {
+            let ns_doc_node = DocNode::namespace(
+              ns_name.to_string(), 
+              Location {
                 filename: specifier.to_string(),
                 line: 1,
                 col: 0,
-              },
-              js_doc: None,
-              namespace_def: Some(ns_def),
-              enum_def: None,
-              type_alias_def: None,
-              interface_def: None,
-              variable_def: None,
-              function_def: None,
-              class_def: None,
-              import_def: None,
-            };
+              }, 
+              None, 
+              ns_def
+            );
             processed_reexports.push(ns_doc_node);
           }
           node::ReexportKind::Named(ident, maybe_alias) => {

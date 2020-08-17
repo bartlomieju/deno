@@ -545,7 +545,10 @@ async fn doc_command(
   if json {
     write_json_to_stdout(&doc_nodes)
   } else {
-    doc_nodes.retain(|doc_node| doc_node.kind != doc::DocNodeKind::Import);
+    doc_nodes.retain(|doc_node| match doc_node.kind {
+      doc::DocNodeKind::Import(_) => false,
+      _ => true,
+    });
     let details = if let Some(filter) = maybe_filter {
       let nodes =
         doc::find_nodes_by_name_recursively(doc_nodes, filter.clone());

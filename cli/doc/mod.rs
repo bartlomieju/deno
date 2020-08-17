@@ -65,8 +65,7 @@ fn find_nodes_by_name(doc_nodes: Vec<DocNode>, name: String) -> Vec<DocNode> {
 
 fn find_children_by_name(node: DocNode, name: String) -> Vec<DocNode> {
   match node.kind {
-    DocNodeKind::Namespace => {
-      let namespace_def = node.namespace_def.unwrap();
+    DocNodeKind::Namespace(namespace_def) => {
       find_nodes_by_name_recursively(namespace_def.elements, name)
     }
     // TODO(#4516) handle class, interface etc...
