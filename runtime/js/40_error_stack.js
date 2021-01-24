@@ -16,8 +16,13 @@
     };
   }
 
+  function opApplySourceMaps(locations) {
+    return core.jsonOpSync("op_apply_source_maps", locations);
+  }
+
   window.__bootstrap.errorStack = {
     opApplySourceMap,
+    opApplySourceMaps,
     opFormatDiagnostics,
   };
 })(this);

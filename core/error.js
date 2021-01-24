@@ -182,42 +182,33 @@
    * source mapping. It is not required to pass this argument, but
    * in such case only JavaScript sources will have proper position in
    * stack frames.
-   * @param {(
+   * @param {(Array<{
    *  fileName: string,
    *  lineNumber: number,
    *  columnNumber: number
-   * ) => {
+   * }>) => Array<{
    *  fileName: string,
    *  lineNumber: number,
    *  columnNumber: number
-   * }} sourceMappingFn 
+   * }>} sourceMappingFn 
    */
   function createPrepareStackTrace(sourceMappingFn) {
     return function prepareStackTrace(
       error,
       callSites,
     ) {
-      const mappedCallSites = callSites.map(
-        (callSite) => {
-          const fileName = callSite.getFileName();
-          const lineNumber = callSite.getLineNumber();
-          const columnNumber = callSite.getColumnNumber();
-          if (
-            sourceMappingFn && fileName && lineNumber != null &&
-            columnNumber != null
-          ) {
-            return patchCallSite(
-              callSite,
-              sourceMappingFn({
-                fileName,
-                lineNumber,
-                columnNumber,
-              }),
-            );
-          }
-          return callSite;
-        },
-      );
+      const callSitesLocations = callSites.map((callSite) => {
+        return {
+          fileName: callSite.getFileName(),
+          lineNumber: callSite.getLineNumber(),
+          columnNumber: callSite.getColumnNumber(),
+        }
+      });
+      const sourceMappedCallSites = sourceMappingFn(callSitesLocations);
+      const mappedCallSites = callSites.map((callSite, index) => {
+        return patchCallSite(callSite, sourceMappedCallSites[index]);
+      });
+
       Object.defineProperties(error, {
         __callSiteEvals: { value: [], configurable: true },
       });

@@ -159,7 +159,7 @@ delete Object.prototype.__proto__;
     let prepareStackTrace;
     if (runtimeOptions.applySourceMaps) {
       prepareStackTrace = core.createPrepareStackTrace(
-        errorStack.opApplySourceMap,
+        errorStack.opApplySourceMaps,
       );
     } else {
       prepareStackTrace = core.createPrepareStackTrace();
