@@ -130,7 +130,6 @@ pub fn op_jupyter_display(
   args: DisplayArgs,
   data: Option<ZeroCopyBuf>,
 ) -> Result<(), AnyError> {
-  dbg!(&args);
   let d = match data {
     Some(x) => x,
     None => return Err(anyhow!("op_jupyter_display missing 'data' argument")),
@@ -679,7 +678,6 @@ impl Kernel {
         transient: json!({}),
       }),
     );
-    dbg!(&msg);
     self.iopub_comm.send(msg).await?;
 
     Ok(())
@@ -824,19 +822,53 @@ impl Kernel {
       }
     };
 
-    let v = self.repl_exec(obj_inspect_fn, Some(json!([obj]))).await?;
+    // TODO(apowers313) complete the "toX" values below
+    let get_mime_types_fn = r#"function getEncodings(obj) {
+      const ret = {};
+      ["toPng", "toSvg", "toHtml", "toJson", "toJpg", "toJpeg", "toVega", "toVegaLite"].forEach((t) => {
+        const fn = obj[Symbol.for(t)];
+        ret[t] = fn ? fn.call(obj) : null;
+      });
+      return JSON.stringify(ret);
+    }"#;
 
-    match v["result"]["value"]["description"].to_string().as_ref() {
-      "Symbol(Symbol.toPng)" => println!("found Symbol(Symbol.toPng)"),
-      "Symbol(Symbol.toSvg)" => println!("found Symbol(Symbol.toSvg)"),
-      "Symbol(Symbol.toHtml)" => println!("found Symbol(Symbol.toHtml)"),
-      "Symbol(Symbol.toJson)" => println!("found Symbol(Symbol.toJson)"),
-      "Symbol(Symbol.toJpg)" => println!("found Symbol(Symbol.toJpg)"),
-      "Symbol(Symbol.toMime)" => println!("found Symbol(Symbol.toMime)"),
-      _ => return Ok(vec![("text/plain", v["result"]["value"].clone())]),
-    };
+    let mimes_ret = self
+      .repl_exec(get_mime_types_fn, Some(json!([obj])))
+      .await?;
 
-    Ok(vec![])
+    let json_str = mimes_ret["result"]["value"].as_str().unwrap();
+    let mime_values: Value = serde_json::from_str(json_str).unwrap();
+
+    let mut ret: Vec<(&str, Value)> = vec![];
+    for (key, v) in mime_values.as_object().unwrap() {
+      if (v != &Value::Null) {
+        match key.as_ref() {
+          // TODO(apowers313) complete the "toX" values below
+          "toPng" => ret.push(("image/png", v.clone())),
+          "toSvg" => ret.push(("image/svg+xml", v.clone())),
+          "toHtml" => ret.push(("text/html", v.clone())),
+          "toJson" => ret.push(("application/json", v.clone())),
+          "toJpg" | "toJpeg" => ret.push(("image/jpeg", v.clone())),
+          "toVega" => ret.push(("application/vnd.vega.v5+json", v.clone())),
+          "toVegaLite" => {
+            ret.push(("application/vnd.vegalite.v3+json", v.clone()))
+          }
+          _ => {
+            return Err(anyhow!(
+              "internal error: unrecognized display mime type"
+            ))
+          }
+        }
+      }
+    }
+
+    if ret.len() == 0 {
+      let text_value =
+        self.repl_exec(obj_inspect_fn, Some(json!([obj]))).await?;
+      ret.push(("text/plain", text_value["result"]["value"].clone()));
+    }
+
+    Ok(ret)
   }
 
   async fn repl_exec(
