@@ -37,7 +37,6 @@ mod windows_util;
 
 use crate::args::flags_from_vec;
 use crate::args::BenchFlags;
-use crate::args::BundleFlags;
 use crate::args::CacheFlags;
 use crate::args::CheckFlags;
 use crate::args::CompileFlags;
@@ -61,7 +60,6 @@ use crate::args::UpgradeFlags;
 use crate::args::VendorFlags;
 use crate::emit::TsConfigType;
 use crate::file_fetcher::File;
-use crate::file_watcher::ResolutionResult;
 use crate::fmt_errors::format_js_error;
 use crate::graph_util::graph_lock_or_exit;
 use crate::graph_util::graph_valid;
@@ -685,144 +683,6 @@ async fn create_graph_and_maybe_check(
   Ok(graph)
 }
 
-fn bundle_module_graph(
-  graph: &deno_graph::ModuleGraph,
-  ps: &ProcState,
-) -> Result<deno_emit::BundleEmit, AnyError> {
-  info!("{} {}", colors::green("Bundle"), graph.roots[0].0);
-
-  let ts_config_result = ps
-    .options
-    .resolve_ts_config_for_emit(TsConfigType::Bundle)?;
-  if ps.options.type_check_mode() == TypeCheckMode::None {
-    if let Some(ignored_options) = ts_config_result.maybe_ignored_options {
-      eprintln!("{}", ignored_options);
-    }
-  }
-
-  deno_emit::bundle_graph(
-    graph,
-    deno_emit::BundleOptions {
-      bundle_type: deno_emit::BundleType::Module,
-      emit_options: ts_config_result.ts_config.into(),
-      emit_ignore_directives: true,
-    },
-  )
-}
-
-async fn bundle_command(
-  flags: Flags,
-  bundle_flags: BundleFlags,
-) -> Result<i32, AnyError> {
-  let debug = flags.log_level == Some(log::Level::Debug);
-  let cli_options = Arc::new(CliOptions::from_flags(flags)?);
-  let resolver = |_| {
-    let cli_options = cli_options.clone();
-    let source_file1 = bundle_flags.source_file.clone();
-    let source_file2 = bundle_flags.source_file.clone();
-    async move {
-      let module_specifier = resolve_url_or_path(&source_file1)?;
-
-      debug!(">>>>> bundle START");
-      let ps = ProcState::from_options(cli_options).await?;
-
-      let graph =
-        create_graph_and_maybe_check(module_specifier, &ps, debug).await?;
-
-      let mut paths_to_watch: Vec<PathBuf> = graph
-        .specifiers()
-        .iter()
-        .filter_map(|(_, r)| {
-          r.as_ref().ok().and_then(|(s, _, _)| s.to_file_path().ok())
-        })
-        .collect();
-
-      if let Ok(Some(import_map_path)) = ps
-        .options
-        .resolve_import_map_specifier()
-        .map(|ms| ms.and_then(|ref s| s.to_file_path().ok()))
-      {
-        paths_to_watch.push(import_map_path);
-      }
-
-      Ok((paths_to_watch, graph, ps))
-    }
-    .map(move |result| match result {
-      Ok((paths_to_watch, graph, ps)) => ResolutionResult::Restart {
-        paths_to_watch,
-        result: Ok((ps, graph)),
-      },
-      Err(e) => ResolutionResult::Restart {
-        paths_to_watch: vec![PathBuf::from(source_file2)],
-        result: Err(e),
-      },
-    })
-  };
-
-  let operation = |(ps, graph): (ProcState, Arc<deno_graph::ModuleGraph>)| {
-    let out_file = bundle_flags.out_file.clone();
-    async move {
-      let bundle_output = bundle_module_graph(graph.as_ref(), &ps)?;
-      debug!(">>>>> bundle END");
-
-      if let Some(out_file) = out_file.as_ref() {
-        let output_bytes = bundle_output.code.as_bytes();
-        let output_len = output_bytes.len();
-        fs_util::write_file(out_file, output_bytes, 0o644)?;
-        info!(
-          "{} {:?} ({})",
-          colors::green("Emit"),
-          out_file,
-          colors::gray(display::human_size(output_len as f64))
-        );
-        if let Some(bundle_map) = bundle_output.maybe_map {
-          let map_bytes = bundle_map.as_bytes();
-          let map_len = map_bytes.len();
-          let ext = if let Some(curr_ext) = out_file.extension() {
-            format!("{}.map", curr_ext.to_string_lossy())
-          } else {
-            "map".to_string()
-          };
-          let map_out_file = out_file.with_extension(ext);
-          fs_util::write_file(&map_out_file, map_bytes, 0o644)?;
-          info!(
-            "{} {:?} ({})",
-            colors::green("Emit"),
-            map_out_file,
-            colors::gray(display::human_size(map_len as f64))
-          );
-        }
-      } else {
-        println!("{}", bundle_output.code);
-      }
-
-      Ok(())
-    }
-  };
-
-  if cli_options.watch_paths().is_some() {
-    file_watcher::watch_func(
-      resolver,
-      operation,
-      file_watcher::PrintConfig {
-        job_name: "Bundle".to_string(),
-        clear_screen: !cli_options.no_clear_screen(),
-      },
-    )
-    .await?;
-  } else {
-    let module_graph =
-      if let ResolutionResult::Restart { result, .. } = resolver(None).await {
-        result?
-      } else {
-        unreachable!();
-      };
-    operation(module_graph).await?;
-  }
-
-  Ok(0)
-}
-
 async fn doc_command(
   flags: Flags,
   doc_flags: DocFlags,
@@ -1242,8 +1102,12 @@ fn get_subcommand(
     DenoSubcommand::Bench(bench_flags) => {
       bench_command(flags, bench_flags).boxed_local()
     }
-    DenoSubcommand::Bundle(bundle_flags) => {
-      bundle_command(flags, bundle_flags).boxed_local()
+    DenoSubcommand::Bundle => {
+      async move {
+        eprintln!("deno bundle was removed in v1.24");
+        // TODO(bartlomieju): link to a page with a migration guide
+        Ok(1)
+      }.boxed_local()
     }
     DenoSubcommand::Doc(doc_flags) => {
       doc_command(flags, doc_flags).boxed_local()
