@@ -15,6 +15,7 @@ mod ops;
 mod ops_builtin;
 mod ops_builtin_v8;
 mod ops_metrics;
+mod ops_require;
 mod resources;
 mod runtime;
 mod source_map;

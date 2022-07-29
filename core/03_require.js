@@ -130,10 +130,9 @@
   Module.createRequire = createRequire;
 
   Module._initPaths = function () {
-    // TODO(bartlomieju): this should be implemented as an op
-    throw new Error("not implemented");
-    // modulePaths = paths;
-    // Module.globalPaths = ArrayPrototypeSlice(modulePaths);
+    const paths = core.opSync("op_require_init_paths");
+    modulePaths = paths;
+    Module.globalPaths = ArrayPrototypeSlice(modulePaths);
   };
 
   Module.syncBuiltinESMExports = function syncBuiltinESMExports() {

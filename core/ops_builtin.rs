@@ -21,6 +21,7 @@ pub(crate) fn init_builtins() -> Extension {
       "00_primordials.js",
       "01_core.js",
       "02_error.js",
+      "03_require.js",
     ))
     .ops(vec![
       op_close::decl(),
@@ -40,6 +41,7 @@ pub(crate) fn init_builtins() -> Extension {
       op_is_proxy::decl(),
     ])
     .ops(crate::ops_builtin_v8::init_builtins_v8())
+    .ops(crate::ops_require::init_require())
     .build()
 }
 
