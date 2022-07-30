@@ -9,8 +9,17 @@
     ArrayPrototypeIncludes,
     ArrayPrototypeSlice,
     ArrayPrototypePush,
+    StringPrototypeEndsWith,
+    StringPrototypeSlice,
+    StringPrototypeIndexOf,
     SafeWeakMap,
   } = window.__bootstrap.primordials;
+
+  function assert(cond) {
+    if (!cond) {
+      throw Error("assert");
+    }
+  }
 
   let requireDepth = 0;
   let statCache = null;
@@ -26,6 +35,25 @@
       ArrayPrototypePush(children, child);
     }
   }
+
+// Find the longest (possibly multi-dot) extension registered in
+// Module._extensions
+function findLongestRegisteredExtension(filename) {
+  // TODO: get basename
+  const name = path.basename(filename);
+  let currentExtension;
+  let index;
+  let startIndex = 0;
+  while ((index = StringPrototypeIndexOf(name, '.', startIndex)) !== -1) {
+    startIndex = index + 1;
+    if (index === 0) continue; // Skip dotfiles like .gitignore
+    currentExtension = StringPrototypeSlice(name, index);
+    if (Module._extensions[currentExtension]) {
+      return currentExtension;
+    }
+  }
+  return '.js';
+}
 
   const moduleParentCache = new SafeWeakMap();
   function Module(id = "", parent) {
@@ -76,7 +104,21 @@
   };
 
   Module.prototype.load = function (filename) {
-    throw new Error("not implemented");
+    assert(!this.loaded);
+    this.filename = filename;
+    // TODO: get dirname here
+    this.paths = Module._nodeModulePaths(filename)
+    const extension = findLongestRegisteredExtension(filename);
+    // allow .mjs to be overriden
+    if (StringPrototypeEndsWith(filename, ".mjs") && !Module._extensions[".mjs"]) {
+      // TODO: use proper error class
+      throw new Error("require ESM", filename)
+    }
+
+    Module._extensions[extension](this, filename);
+    this.loaded = true;
+
+    // TODO: do caching
   };
 
   // Loads a module at the given file path. Returns that module's
