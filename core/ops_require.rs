@@ -4,7 +4,10 @@ use deno_ops::op;
 use std::path::PathBuf;
 
 pub(crate) fn init_require() -> Vec<OpDecl> {
-  vec![op_require_init_paths::decl()]
+  vec![
+    op_require_init_paths::decl(),
+    op_require_node_module_paths::decl(),
+    ]
 }
 
 #[op]
@@ -50,6 +53,31 @@ pub fn op_require_init_paths() -> Vec<String> {
       .collect();
     node_paths.append(&mut paths);
     paths = node_paths;
+  }
+
+  paths
+}
+
+
+#[op]
+pub fn op_require_node_module_paths(from: String) -> Vec<String> {
+  let mut paths = vec![];
+
+  if cfg!(target_os = "windows") {
+
+  } else {
+    // Guarantee that "from" is absolute.
+    // TODO:
+
+    if from == "/" {
+      return vec!["/node_modules".to_string()];
+    }
+
+    let mut paths = vec![];
+
+    
+    // Append /node_modules to handle root paths.
+    paths.push("/node_modules".to_string());
   }
 
   paths
