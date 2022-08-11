@@ -457,7 +457,7 @@ fn op_require_resolve_exports(
   request: String,
   name: String,
   expansion: String,
-) -> Result<String, AnyError> {
+) -> Result<Option<String>, AnyError> {
   check_unstable(state);
 
   let pkg_path = path_resolve(vec![modules_path, name]);
@@ -473,26 +473,8 @@ fn op_require_resolve_exports(
       &base,
       esm_resolver::DEFAULT_CONDITIONS,
     )
-    .map(|r| r.as_str().to_string());
+    .map(|r| Some(r.as_str().to_string()));
   }
 
-  todo!()
-  // const pkgPath = pathResolve(modulesPath, name);
-  //   const pkg = readPackage(pkgPath);
-  //   if (pkg?.exports != null) {
-  //     try {
-  //       const resolvedExports = packageExportsResolve(
-  //         pathToFileURL(pkgPath + '/package.json'),
-  //         '.' + expansion,
-  //         pkg,
-  //         null,
-  //         cjsConditions
-  //       );
-  //       return finalizeEsmResolution(resolvedExports, null, pkgPath);
-  //     } catch (e) {
-  //       if (e.code === 'ERR_MODULE_NOT_FOUND')
-  //         throw createEsmNotFoundErr(request, pkgPath + '/package.json');
-  //       throw e;
-  //     }
-  //   }
+  Ok(None)
 }
