@@ -1124,6 +1124,7 @@ version = "0.2.0"
 dependencies = [
  "deno_core",
  "regex",
+ "serde",
 ]
 
 [[package]]

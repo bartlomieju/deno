@@ -7,6 +7,7 @@ use deno_core::op;
 use deno_core::url::Url;
 use deno_core::Extension;
 use deno_core::OpState;
+use esm_resolver::PackageConfig;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -58,6 +59,7 @@ pub fn init(
       op_require_read_file::decl(),
       op_require_as_file_path::decl(),
       op_require_resolve_exports::decl(),
+      op_require_read_package_scope::decl(),
     ])
     .state(move |state| {
       state.put(Unstable(unstable));
@@ -477,4 +479,16 @@ fn op_require_resolve_exports(
   }
 
   Ok(None)
+}
+
+#[op]
+fn op_require_read_package_scope(
+  state: &mut OpState,
+  filename: String,
+) -> Option<PackageConfig> {
+  check_unstable(state);
+  esm_resolver::get_package_scope_config(
+    &Url::from_file_path(filename).unwrap(),
+  )
+  .ok()
 }
