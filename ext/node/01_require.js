@@ -100,9 +100,7 @@
   }
 
   function tryPackage(requestPath, exts, isMain, originalPath) {
-    // const pkg = readPackage(requestPath)?.main;
-    let pkg = false;
-
+    const pkg = core.ops.op_require_read_package_scope(requestPath).main;
     if (!pkg) {
       return tryExtensions(
         pathResolve(requestPath, "index"),
@@ -111,7 +109,7 @@
       );
     }
 
-    const filename = path.resolve(requestPath, pkg);
+    const filename = pathResolve(requestPath, pkg);
     let actual = tryFile(filename, isMain) ||
       tryExtensions(filename, exts, isMain) ||
       tryExtensions(
@@ -352,7 +350,11 @@
         "op_require_is_deno_dir_package",
         curPath,
       );
-      const basePath = isDenoDirPackage
+      const isRelative = ops.op_require_is_request_relative(
+        request,
+      );
+      // TODO(bartlomieju): could be a single op
+      const basePath = (isDenoDirPackage && !isRelative)
         ? curPath
         : pathResolve(curPath, request);
       let filename;
@@ -457,14 +459,9 @@
     if (cachedModule !== undefined) {
       updateChildren(parent, cachedModule, true);
       if (!cachedModule.loaded) {
-        const parseCachedModule = cjsParseCache.get(cachedModule);
-        if (!parseCachedModule || parseCachedModule.loaded) {
-          return getExportsForCircularRequire(cachedModule);
-        }
-        parseCachedModule.loaded = true;
-      } else {
-        return cachedModule.exports;
+        return getExportsForCircularRequire(cachedModule);
       }
+      return cachedModule.exports;
     }
 
     const mod = loadNativeModule(filename, request);
@@ -473,7 +470,6 @@
     ) {
       return mod.exports;
     }
-
     // Don't call updateChildren(), Module constructor already does.
     const module = cachedModule || new Module(filename, parent);
 
