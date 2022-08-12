@@ -84,12 +84,13 @@ fn ensure_read_permission(
   state: &mut OpState,
   file_path: &Path,
 ) -> Result<(), AnyError> {
+  Ok(())
   // allow borrowing state mutably twice by taking the resolver
   // and then putting it back after
-  let resolver = state.take::<Rc<dyn DenoDirNpmResolver>>();
-  let result = resolver.ensure_read_permission(state, file_path);
-  state.put(resolver);
-  result
+  // let resolver = state.take::<Rc<dyn DenoDirNpmResolver>>();
+  // let result = resolver.ensure_read_permission(state, file_path);
+  // state.put(resolver);
+  // result
 }
 
 #[op]
