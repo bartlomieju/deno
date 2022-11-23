@@ -90,7 +90,7 @@ impl LocalNpmPackageResolver {
   ) -> Result<PathBuf, AnyError> {
     match self.maybe_resolve_folder_for_specifier(specifier) {
       Some(path) => Ok(path),
-      None => bail!("could not find npm package for '{}'", specifier),
+      None => bail!("1could not find npm package for '{}'", specifier),
     }
   }
 

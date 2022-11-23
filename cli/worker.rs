@@ -72,6 +72,8 @@ impl CliMainWorker {
         true,
       )?;
     } else {
+      self.ps.prepare_node_std_graph().await?;
+      self.initialize_main_module_for_node().await?;
       self.execute_main_module_possibly_with_npm().await?;
     }
 

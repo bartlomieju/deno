@@ -100,7 +100,7 @@ impl NpmResolutionSnapshot {
   ) -> Result<&NpmResolutionPackage, AnyError> {
     match self.package_reqs.get(req) {
       Some(id) => Ok(self.packages.get(id).unwrap()),
-      None => bail!("could not find npm package directory for '{}'", req),
+      None => bail!("1could not find npm package directory for '{}'", req),
     }
   }
 
@@ -171,7 +171,7 @@ impl NpmResolutionSnapshot {
     }
 
     bail!(
-      "could not find npm package '{}' referenced by '{}'",
+      "2could not find npm package '{}' referenced by '{}'",
       name,
       referrer
     )

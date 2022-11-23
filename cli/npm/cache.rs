@@ -236,7 +236,7 @@ impl ReadonlyNpmCache {
       .maybe_resolve_package_folder_id_from_specifier(specifier, registry_url)
     {
       Some(id) => Ok(id),
-      None => bail!("could not find npm package for '{}'", specifier),
+      None => bail!("3could not find npm package for '{}'", specifier),
     }
   }
 

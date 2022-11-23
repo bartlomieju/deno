@@ -741,20 +741,20 @@
   Module._extensions[".js"] = function (module, filename) {
     const content = ops.op_require_read_file(filename);
 
-    if (StringPrototypeEndsWith(filename, ".js")) {
-      const pkg = core.ops.op_require_read_closest_package_json(filename);
-      if (pkg && pkg.exists && pkg.typ == "module") {
-        let message = `Trying to import ESM module: ${filename}`;
+    // if (StringPrototypeEndsWith(filename, ".js")) {
+    //   const pkg = core.ops.op_require_read_closest_package_json(filename);
+    //   if (pkg && pkg.exists && pkg.typ == "module") {
+    //     let message = `Trying to import ESM module: ${filename}`;
 
-        if (module.parent) {
-          message += ` from ${module.parent.filename}`;
-        }
+    //     if (module.parent) {
+    //       message += ` from ${module.parent.filename}`;
+    //     }
 
-        message += ` using require()`;
+    //     message += ` using require()`;
 
-        throw new Error(message);
-      }
-    }
+    //     throw new Error(message);
+    //   }
+    // }
 
     module._compile(content, filename);
   };
