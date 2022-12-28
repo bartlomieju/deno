@@ -481,8 +481,11 @@ fn main() {
   let cli_snapshot_path = o.join("CLI_SNAPSHOT.bin");
   let mut js_files = get_js_files(env!("CARGO_MANIFEST_DIR"), "js");
   js_files.push(deno_runtime::js::get_99_main());
+
   // FIXME(bartlomieju): this is a temporary hack, should use public interface instead
+  println!("cargo:rerun-if-changed={}", "../../eslint/out.js");
   js_files.push(PathBuf::from("../../eslint/out.js"));
+
   create_cli_snapshot(cli_snapshot_path, js_files);
 
   #[cfg(target_os = "windows")]

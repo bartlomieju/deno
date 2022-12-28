@@ -63,9 +63,11 @@ impl CliMainWorker {
       self.maybe_setup_coverage_collector().await?;
     log::debug!("main_module {}", self.main_module);
 
-    if self.is_main_cjs {
+    if self.is_main_cjs || true {
       self.ps.prepare_node_std_graph().await?;
       self.initialize_main_module_for_node().await?;
+      let src = format!("globalThis.require = Deno[Deno.internal].require.Module.createRequire('{}');", self.main_module.to_string());
+      self.worker.execute_script("init", &src)?;
       node::load_cjs_module_from_ext_node(
         &mut self.worker.js_runtime,
         &self.main_module.to_file_path().unwrap().to_string_lossy(),
@@ -73,6 +75,7 @@ impl CliMainWorker {
         self.ps.options.inspect_brk().is_some(),
       )?;
     } else {
+      // FIXME(bartlomieju):
       self.ps.prepare_node_std_graph().await?;
       self.initialize_main_module_for_node().await?;
       self.execute_main_module_possibly_with_npm().await?;
