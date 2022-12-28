@@ -31,6 +31,7 @@ const UNSTABLE_DENO_PROPS: &[&str] = &[
   "umask",
   "spawnChild",
   "Child",
+  "ChildProcess",
   "spawn",
   "spawnSync",
   "SpawnOptions",
@@ -45,6 +46,7 @@ const UNSTABLE_DENO_PROPS: &[&str] = &[
   "ServeInit",
   "ServeTlsInit",
   "Handler",
+  "osUptime",
 ];
 
 static MSG_MISSING_PROPERTY_DENO: Lazy<Regex> = Lazy::new(|| {

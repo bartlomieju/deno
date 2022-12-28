@@ -7,6 +7,7 @@ use deno_core::normalize_path;
 use deno_core::op;
 use deno_core::url::Url;
 use deno_core::Extension;
+use deno_core::JsRuntimeInspector;
 use deno_core::OpState;
 use once_cell::sync::Lazy;
 use std::collections::HashSet;
@@ -29,8 +30,9 @@ pub use resolution::package_imports_resolve;
 pub use resolution::package_resolve;
 pub use resolution::path_to_declaration_path;
 pub use resolution::NodeModuleKind;
+pub use resolution::NodeResolutionMode;
 pub use resolution::DEFAULT_CONDITIONS;
-pub use resolution::TYPES_CONDITIONS;
+use std::cell::RefCell;
 
 pub trait NodePermissions {
   fn check_read(&mut self, path: &Path) -> Result<(), AnyError>;
@@ -41,7 +43,7 @@ pub trait RequireNpmResolver {
     &self,
     specifier: &str,
     referrer: &Path,
-    conditions: &[&str],
+    mode: NodeResolutionMode,
   ) -> Result<PathBuf, AnyError>;
 
   fn resolve_package_folder_from_path(
@@ -106,6 +108,7 @@ pub fn init<P: NodePermissions + 'static>(
       op_require_read_closest_package_json::decl::<P>(),
       op_require_read_package_scope::decl(),
       op_require_package_imports_resolve::decl::<P>(),
+      op_require_break_on_next_statement::decl(),
     ])
     .state(move |state| {
       if let Some(npm_resolver) = maybe_npm_resolver.clone() {
@@ -289,7 +292,7 @@ fn op_require_resolve_deno_dir(
     .resolve_package_folder_from_package(
       &request,
       &PathBuf::from(parent_filename),
-      DEFAULT_CONDITIONS,
+      NodeResolutionMode::Execution,
     )
     .ok()
     .map(|p| p.to_string_lossy().to_string())
@@ -503,6 +506,7 @@ fn op_require_try_self(
       &referrer,
       NodeModuleKind::Cjs,
       resolution::REQUIRE_CONDITIONS,
+      NodeResolutionMode::Execution,
       &*resolver,
     )
     .map(|r| Some(r.to_string_lossy().to_string()))
@@ -538,6 +542,7 @@ pub fn op_require_as_file_path(file_or_url: String) -> String {
 #[op]
 fn op_require_resolve_exports(
   state: &mut OpState,
+  uses_local_node_modules_dir: bool,
   modules_path: String,
   _request: String,
   name: String,
@@ -546,7 +551,9 @@ fn op_require_resolve_exports(
 ) -> Result<Option<String>, AnyError> {
   let resolver = state.borrow::<Rc<dyn RequireNpmResolver>>().clone();
 
-  let pkg_path = if resolver.in_npm_package(&PathBuf::from(&modules_path)) {
+  let pkg_path = if resolver.in_npm_package(&PathBuf::from(&modules_path))
+    && !uses_local_node_modules_dir
+  {
     modules_path
   } else {
     path_resolve(vec![modules_path, name])
@@ -565,6 +572,7 @@ fn op_require_resolve_exports(
       &referrer,
       NodeModuleKind::Cjs,
       resolution::REQUIRE_CONDITIONS,
+      NodeResolutionMode::Execution,
       &*resolver,
     )
     .map(|r| Some(r.to_string_lossy().to_string()))
@@ -624,6 +632,7 @@ where
       &referrer,
       NodeModuleKind::Cjs,
       resolution::REQUIRE_CONDITIONS,
+      NodeResolutionMode::Execution,
       &*resolver,
     )
     .map(|r| Some(Url::from_file_path(r).unwrap().to_string()));
@@ -632,4 +641,12 @@ where
   } else {
     Ok(None)
   }
+}
+
+#[op]
+fn op_require_break_on_next_statement(state: &mut OpState) {
+  let inspector = state.borrow::<Rc<RefCell<JsRuntimeInspector>>>();
+  inspector
+    .borrow_mut()
+    .wait_for_session_and_break_on_next_statement()
 }
