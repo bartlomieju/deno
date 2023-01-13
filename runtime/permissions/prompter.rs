@@ -194,8 +194,8 @@ impl PermissionPrompter for TtyPrompter {
 
     // Lock stdio streams, so no other output is written while the prompt is
     // displayed.
-    let _stdout_guard = std::io::stdout().lock();
-    let _stderr_guard = std::io::stderr().lock();
+    let stdout_guard = std::io::stdout().lock();
+    let stderr_guard = std::io::stderr().lock();
 
     // print to stderr so that if stdout is piped this is still displayed.
     const OPTS: &str = "[y/n] (y = yes, allow; n = no, deny)";
@@ -243,8 +243,8 @@ impl PermissionPrompter for TtyPrompter {
       };
     };
 
-    drop(_stdout_guard);
-    drop(_stderr_guard);
+    drop(stdout_guard);
+    drop(stderr_guard);
 
     value
   }
