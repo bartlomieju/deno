@@ -16,6 +16,11 @@ name = "deno"
 path = "main.rs"
 doc = false
 
+[[bin]]
+name = "eslint"
+path = "main.rs"
+doc = false
+
 [[bench]]
 name = "deno_bench"
 harness = false

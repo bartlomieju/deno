@@ -68,12 +68,41 @@ impl CliMainWorker {
       self.initialize_main_module_for_node().await?;
       let src = format!("globalThis.require = Deno[Deno.internal].require.Module.createRequire('{}');", self.main_module.to_string());
       self.worker.execute_script("init", &src)?;
-      node::load_cjs_module_from_ext_node(
-        &mut self.worker.js_runtime,
-        &self.main_module.to_file_path().unwrap().to_string_lossy(),
-        true,
-        self.ps.options.inspect_brk().is_some(),
-      )?;
+      // node::load_cjs_module_from_ext_node(
+      //   &mut self.worker.js_runtime,
+      //   &self.main_module.to_file_path().unwrap().to_string_lossy(),
+      //   true,
+      //   self.ps.options.inspect_brk().is_some(),
+      // )?;
+
+
+      fn escape_for_single_quote_string(text: &str) -> String {
+        text.replace('\\', r"\\").replace('\'', r"\'")
+      }
+
+
+      // NOTE(bartlomieju): this is main entry point into ESLint code
+      let source_code = &format!(
+        r#"(function loadEslint(filename, cwd) {{
+          const CJSModule = Deno[Deno.internal].require.Module;
+          const module = new CJSModule('eslint');
+          module.filename = filename;
+          module.paths = CJSModule._nodeModulePaths(cwd);
+          const content = `
+          const init = globalThis.initEslint;
+          delete globalThis.initEslint;
+          init(globalThis, process, __filename, __dirname);
+          const main = globalThis.runEslintMainFn;
+          delete globalThis.runEslintMainFn;
+          main();`;
+          module._compile(content, filename);
+        }})('{filename}', '{cwd}');"#,
+        filename = escape_for_single_quote_string(&std::env::current_dir().unwrap().join("eslint.js").to_string_lossy()),
+        cwd = escape_for_single_quote_string(&std::env::current_dir().unwrap().to_string_lossy()),
+      );
+    
+      self.worker.js_runtime.execute_script(&located_script_name!(), source_code)?;
+
     } else {
       // FIXME(bartlomieju):
       self.ps.prepare_node_std_graph().await?;

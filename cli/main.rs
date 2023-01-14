@@ -33,6 +33,7 @@ use crate::resolver::CliResolver;
 use crate::util::display;
 
 use args::CliOptions;
+use args::RunFlags;
 use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::error::JsError;
@@ -257,41 +258,60 @@ pub fn main() {
   util::windows::ensure_stdio_open();
   #[cfg(windows)]
   colors::enable_ansi(); // For Windows 10
-  deno_runtime::permissions::set_prompt_callbacks(
-    Box::new(util::draw_thread::DrawThread::hide),
-    Box::new(util::draw_thread::DrawThread::show),
-  );
+  // deno_runtime::permissions::set_prompt_callbacks(
+  //   Box::new(util::draw_thread::DrawThread::hide),
+  //   Box::new(util::draw_thread::DrawThread::show),
+  // );
 
   let args: Vec<String> = env::args().collect();
 
   let future = async move {
-    let standalone_res =
-      match standalone::extract_standalone(args.clone()).await {
-        Ok(Some((metadata, eszip))) => standalone::run(eszip, metadata).await,
-        Ok(None) => Ok(()),
-        Err(err) => Err(err),
-      };
-    // TODO(bartlomieju): doesn't handle exit code set by the runtime properly
-    unwrap_or_exit(standalone_res);
+    // let standalone_res =
+    //   match standalone::extract_standalone(args.clone()).await {
+    //     Ok(Some((metadata, eszip))) => standalone::run(eszip, metadata).await,
+    //     Ok(None) => Ok(()),
+    //     Err(err) => Err(err),
+    //   };
+    // // TODO(bartlomieju): doesn't handle exit code set by the runtime properly
+    // unwrap_or_exit(standalone_res);
 
-    let flags = match flags_from_vec(args) {
-      Ok(flags) => flags,
-      Err(err @ clap::Error { .. })
-        if err.kind() == clap::ErrorKind::DisplayHelp
-          || err.kind() == clap::ErrorKind::DisplayVersion =>
-      {
-        err.print().unwrap();
-        std::process::exit(0);
-      }
-      Err(err) => unwrap_or_exit(Err(AnyError::from(err))),
+    // let flags = match flags_from_vec(args) {
+    //   Ok(flags) => flags,
+    //   Err(err @ clap::Error { .. })
+    //     if err.kind() == clap::ErrorKind::DisplayHelp
+    //       || err.kind() == clap::ErrorKind::DisplayVersion =>
+    //   {
+    //     err.print().unwrap();
+    //     std::process::exit(0);
+    //   }
+    //   Err(err) => unwrap_or_exit(Err(AnyError::from(err))),
+    // };
+    // if !flags.v8_flags.is_empty() {
+    //   init_v8_flags(&flags.v8_flags);
+    // }
+
+    let mut flags = Flags::default();
+
+    // TODO(bartlomieju): make this nicer
+    flags.allow_all = true;
+    flags.allow_read = Some(vec![]);
+    flags.allow_env = Some(vec![]);
+    flags.allow_net = Some(vec![]);
+    flags.allow_run = Some(vec![]);
+    flags.allow_write = Some(vec![]);
+    flags.allow_sys = Some(vec![]);
+    flags.allow_ffi = Some(vec![]);
+    flags.allow_hrtime = true;
+    flags.argv = args[1..].to_vec();
+    
+    let run_flags = RunFlags {
+      script: "eslint".to_string()
     };
-    if !flags.v8_flags.is_empty() {
-      init_v8_flags(&flags.v8_flags);
-    }
 
     util::logger::init(flags.log_level);
 
-    run_subcommand(flags).await
+    // run_subcommand(flags).await
+    tools::run::run_script(flags, run_flags).await
   };
 
   let exit_code = unwrap_or_exit(run_local(future));
