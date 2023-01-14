@@ -483,8 +483,8 @@ fn main() {
   js_files.push(deno_runtime::js::get_99_main());
 
   // FIXME(bartlomieju): this is a temporary hack, should use public interface instead
-  println!("cargo:rerun-if-changed={}", "../../eslint/bundle.js");
-  js_files.push(PathBuf::from("../../eslint/bundle.js"));
+  println!("cargo:rerun-if-changed={}", "../../eslint/eslint_bundle.js");
+  js_files.push(PathBuf::from("../../eslint/eslint_bundle.js"));
 
   create_cli_snapshot(cli_snapshot_path, js_files);
 
