@@ -296,12 +296,12 @@ pub fn main() {
     flags.allow_all = true;
     flags.allow_read = Some(vec![]);
     flags.allow_env = Some(vec![]);
-    flags.allow_net = Some(vec![]);
-    flags.allow_run = Some(vec![]);
+    flags.allow_net = None;
+    flags.allow_run = None;
     flags.allow_write = Some(vec![]);
     flags.allow_sys = Some(vec![]);
-    flags.allow_ffi = Some(vec![]);
-    flags.allow_hrtime = true;
+    flags.allow_ffi = None;
+    flags.allow_hrtime = false;
     flags.argv = args[1..].to_vec();
     
     let run_flags = RunFlags {
