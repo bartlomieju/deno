@@ -161,7 +161,7 @@ winapi = "=0.3.9"
 [profile.release]
 codegen-units = 1
 incremental = true
-lto = true
+# lto = true
 opt-level = 'z' # Optimize for size
 
 # Build release with debug symbols: cargo build --profile=release-with-debug

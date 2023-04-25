@@ -32,18 +32,21 @@ use v8::fast_api::CTypeInfo;
 /// Background: ops are stored in a `FuturesUnordered` structure which polls
 /// them, but without the `OpCall` wrapper this doesn't happen until the next
 /// turn of the event loop, which is too late for certain ops.
-pub struct OpCall<T>(MaybeDone<Pin<Box<dyn Future<Output = T>>>>);
+pub struct OpCall<'a, T>(
+  MaybeDone<Pin<bumpalo::boxed::Box<'a, dyn Future<Output = T>>>>,
+);
 
-pub enum EagerPollResult<T> {
+pub enum EagerPollResult<'a, T> {
   Ready(T),
-  Pending(OpCall<T>),
+  Pending(OpCall<'a, T>),
 }
 
-impl<T> OpCall<T> {
+impl<'a, T> OpCall<'a, T> {
   /// Wraps a future, and polls the inner future immediately.
   /// This should be the default choice for ops.
-  pub fn eager(fut: impl Future<Output = T> + 'static) -> EagerPollResult<T> {
-    let boxed = Box::pin(fut) as Pin<Box<dyn Future<Output = T>>>;
+  pub fn eager(
+    boxed: Pin<bumpalo::boxed::Box<'a, impl Future<Output = T>>>,
+  ) -> EagerPollResult<T> {
     let mut inner = maybe_done(boxed);
     let waker = noop_waker();
     let mut cx = Context::from_waker(&waker);
@@ -56,8 +59,9 @@ impl<T> OpCall<T> {
   }
 
   /// Wraps a future; the inner future is polled the usual way (lazily).
-  pub fn lazy(fut: impl Future<Output = T> + 'static) -> Self {
-    let boxed = Box::pin(fut) as Pin<Box<dyn Future<Output = T>>>;
+  pub fn lazy(
+    boxed: Pin<bumpalo::boxed::Box<'a, impl Future<Output = T>>>,
+  ) -> Self {
     let inner = maybe_done(boxed);
     Self(inner)
   }
@@ -69,7 +73,7 @@ impl<T> OpCall<T> {
   }
 }
 
-impl<T> Future for OpCall<T> {
+impl<'a, T> Future for OpCall<'a, T> {
   type Output = T;
 
   fn poll(
@@ -85,7 +89,7 @@ impl<T> Future for OpCall<T> {
   }
 }
 
-impl<F> FusedFuture for OpCall<F>
+impl<'a, F> FusedFuture for OpCall<'a, F>
 where
   F: Future,
 {
@@ -96,14 +100,14 @@ where
 
 pub type RealmIdx = usize;
 pub type PromiseId = i32;
-pub type OpAsyncFuture = OpCall<(PromiseId, OpId, OpResult)>;
+pub type OpAsyncFuture<'a> = OpCall<'a, (PromiseId, OpId, OpResult)>;
 pub type OpFn =
   fn(&mut v8::HandleScope, v8::FunctionCallbackArguments, v8::ReturnValue);
 pub type OpId = usize;
 
-pub enum Op {
+pub enum Op<'a> {
   Sync(OpResult),
-  Async(OpAsyncFuture),
+  Async(OpAsyncFuture<'a>),
   NotFound,
 }
 

@@ -53,7 +53,7 @@ use std::task::Context;
 use std::task::Poll;
 use v8::OwnedIsolate;
 
-type PendingOpFuture = OpCall<(RealmIdx, PromiseId, OpId, OpResult)>;
+type PendingOpFuture<'a> = OpCall<'a, (RealmIdx, PromiseId, OpId, OpResult)>;
 
 pub enum Snapshot {
   Static(&'static [u8]),
@@ -178,6 +178,8 @@ pub struct JsRuntimeState {
   pub(crate) dispatched_exceptions: VecDeque<v8::Global<v8::Value>>,
   pub(crate) inspector: Option<Rc<RefCell<JsRuntimeInspector>>>,
   waker: AtomicWaker,
+
+  ops_allocator: bumpalo::Bump,
 }
 
 fn v8_init(
@@ -353,6 +355,7 @@ impl JsRuntime {
       inspector: None,
       global_realm: None,
       known_realms: Vec::with_capacity(1),
+      ops_allocator: bumpalo::Bump::with_capacity(1024),
     }));
 
     let weak = Rc::downgrade(&state_rc);
@@ -2236,10 +2239,10 @@ impl JsRuntime {
       // This batch is received in JS via the special `arguments` variable
       // and then each tuple is used to resolve or reject promises
       //
-      // This can handle 15 promises futures in a single batch without heap
+      // This can handle 127 op responses in a single batch without heap
       // allocations.
-      let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
-        SmallVec::with_capacity(responses.len() * 2 + 2);
+      let mut args: SmallVec<[v8::Local<v8::Value>; 64]> =
+        SmallVec::with_capacity(responses.len() * 2 + 1);
 
       for (promise_id, mut resp) in responses {
         context_state.unrefed_ops.remove(&promise_id);
@@ -2373,6 +2376,8 @@ pub fn queue_fast_async_op(
   };
 
   let mut state = runtime_state.borrow_mut();
+  let op = Box::pin_in(op, &state.ops_allocator);
+
   state.pending_ops.push(OpCall::lazy(op));
   state.have_unpolled_ops = true;
 }
@@ -2390,14 +2395,20 @@ pub fn queue_async_op<'s>(
     None => unreachable!(),
   };
 
-  // An op's realm (as given by `OpCtx::realm_idx`) must match the realm in
-  // which it is invoked. Otherwise, we might have cross-realm object exposure.
-  // deno_core doesn't currently support such exposure, even though embedders
-  // can cause them, so we panic in debug mode (since the check is expensive).
-  debug_assert_eq!(
-    runtime_state.borrow().known_realms[ctx.realm_idx].to_local(scope),
-    Some(scope.get_current_context())
-  );
+  let op = {
+    let state = runtime_state.borrow();
+
+    // An op's realm (as given by `OpCtx::realm_idx`) must match the realm in
+    // which it is invoked. Otherwise, we might have cross-realm object exposure.
+    // deno_core doesn't currently support such exposure, even though embedders
+    // can cause them, so we panic in debug mode (since the check is expensive).
+    debug_assert_eq!(
+      state.known_realms[ctx.realm_idx].to_local(scope),
+      Some(scope.get_current_context())
+    );
+
+    Box::pin_in(op, &state.ops_allocator)
+  };
 
   match OpCall::eager(op) {
     // If the result is ready we'll just return it straight to the caller, so
