@@ -174,18 +174,32 @@
     }
     // Drain nextTick queue if there's a tick scheduled.
     if (arguments[arguments.length - 1]) {
+      ops.op_print("running next ticks here\n");
       for (let i = 0; i < nextTickCallbacks.length; i++) {
-        nextTickCallbacks[i]();
+        try {
+          nextTickCallbacks[i]();
+        } catch (e) {
+          console.log("caught exception in nextTickCallback", e);
+        }
       }
     } else {
       ops.op_run_microtasks();
     }
     // Finally drain macrotask queue.
     for (let i = 0; i < macrotaskCallbacks.length; i++) {
+      ops.op_print("starting here\n");
       const cb = macrotaskCallbacks[i];
       while (true) {
-        const res = cb();
+        let res;
+        try {
+          console.log("calling cb");
+          res = cb();
+          console.log("didn't catch anything :(");
+        } catch (e) {
+          console.log("caught exception in macrotaskCallback", e);
+        }
         ops.op_run_microtasks();
+        console.log("did run microtasks");
         if (res === true) {
           break;
         }

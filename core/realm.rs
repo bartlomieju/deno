@@ -285,6 +285,7 @@ impl<'s> JsRealmLocal<'s> {
         return Ok(());
       }
     }
+    eprintln!("has exception to err result in promise");
     exception_to_err_result(scope, exception, true)
   }
 }

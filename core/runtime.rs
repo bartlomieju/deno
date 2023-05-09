@@ -1590,6 +1590,8 @@ pub(crate) fn exception_to_err_result<T>(
   }
 
   let mut js_error = JsError::from_v8_exception(scope, exception);
+  eprintln!("creating error");
+  // panic!();
   if in_promise {
     js_error.exception_message = format!(
       "Uncaught (in promise) {}",
@@ -2426,6 +2428,8 @@ impl JsRuntime {
     let js_event_loop_tick_cb = js_event_loop_tick_cb_handle.open(tc_scope);
     let this = v8::undefined(tc_scope).into();
     js_event_loop_tick_cb.call(tc_scope, this, args.as_slice());
+
+    eprintln!("has caught {}", tc_scope.has_caught());
 
     if let Some(exception) = tc_scope.exception() {
       return exception_to_err_result(tc_scope, exception, false);
