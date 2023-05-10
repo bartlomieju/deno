@@ -1,11 +1,11 @@
-import "npm:express";
-
 setTimeout(callback, 1000);
 
 function callback() {
   try {
-    throw new Error("boom");
+    Deno.lstatSync("foo");
+    return true;
   } catch (e) {
     console.log("caught", e);
+    return false;
   }
 }
