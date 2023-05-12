@@ -1046,6 +1046,7 @@ dependencies = [
  "percent-encoding",
  "phf",
  "pin-project",
+ "rand",
  "ring",
  "serde",
  "slab",
@@ -1101,9 +1102,9 @@ dependencies = [
 
 [[package]]
 name = "deno_lockfile"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e88b89dc19bc7b0c28297c9fde36dc999a04c19b6d01ff061ae30dc9119488c8"
+checksum = "54cecfa877ecd31bb7f694826a2b6566ff77515f527bddae296aff455e6999c2"
 dependencies = [
  "ring",
  "serde",
@@ -2965,9 +2966,9 @@ dependencies = [
 
 [[package]]
 name = "monch"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1120c1ab92ab8cdacb3b89ac9a214f512d2e78e90e3b57c00d9551ced19f646f"
+checksum = "bb73e1dc7d232e1ab47ef27f45fa1d173a0979b370e763a9d0584556011150e0"
 
 [[package]]
 name = "napi-build"
@@ -5117,22 +5118,22 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.38"
+version = "1.0.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a9cd18aa97d5c45c6603caea1da6628790b37f7a34b6ca89522331c5180fed0"
+checksum = "978c9a314bd8dc99be594bc3c175faaa9794be04a5a5e153caba6915336cebac"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.38"
+version = "1.0.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fb327af4685e4d03fa8cbcf1716380da910eeb2bb8be417e7f9fd3fb164f36f"
+checksum = "f9456a42c5b0d803c8cd86e73dd7cc9edd429499f37a3550d286d5e86720569f"
 dependencies = [
  "proc-macro2 1.0.56",
  "quote 1.0.26",
- "syn 1.0.109",
+ "syn 2.0.13",
 ]
 
 [[package]]
@@ -5199,9 +5200,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.28.0"
+version = "1.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3c786bf8134e5a3a166db9b29ab8f48134739014a3eca7bc6bfa95d673b136f"
+checksum = "0aa32867d44e6f2ce3385e89dceb990188b8bb0fb25b0cf576647a6f98ac5105"
 dependencies = [
  "autocfg",
  "bytes",
@@ -5702,9 +5703,9 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "0.71.0"
+version = "0.71.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51a173a437bebab13d587a4aaf0a1e7a49433226538c9a78ca3b4ce3b8c6aeb6"
+checksum = "32a2ece81e9f3d573376d5301b0d1c1c0ffcb63d57e6164ddf1bc844b4c8a23b"
 dependencies = [
  "bitflags 1.3.2",
  "fslock",
