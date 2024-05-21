@@ -319,6 +319,7 @@ pub fn main() {
   setup_panic_hook();
 
   if std::env::var("DENO_TOKIO_CONSOLE").ok().is_some() {
+    std::env::remove_var("DENO_TOKIO_CONSOLE");
     console_subscriber::init();
   }
 
