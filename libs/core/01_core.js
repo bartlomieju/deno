@@ -313,6 +313,9 @@
   // an async context snapshot. It may contain additional fields for
   // async hooks (asyncId, triggerAsyncId).
   function queueNextTick(tickObject) {
+    if (queue.isEmpty()) {
+      setHasTickScheduled(true);
+    }
     queue.push(tickObject);
   }
 
