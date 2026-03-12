@@ -11431,6 +11431,7 @@ __export(deno_exports, {
   createDenoForkContext: () => createDenoForkContext,
   enterSpan: () => enterSpan,
   exitSpan: () => exitSpan,
+  isTypesNodePkgPath: () => isTypesNodePkgPath,
   parseNpmPackageReference: () => parseNpmPackageReference,
   setEnterSpan: () => setEnterSpan,
   setExitSpan: () => setExitSpan,
@@ -11522,9 +11523,6 @@ function createDenoForkContext({
     }
     return false;
   }
-  function isTypesNodePkgPath(path) {
-    return path.endsWith(".d.ts") && path.includes("/@types/node/");
-  }
   function createNodeGlobalsSymbolTable() {
     return new Proxy(globals, {
       get(target, prop, receiver) {
@@ -11587,6 +11585,9 @@ function createDenoForkContext({
       }
     }
   }
+}
+function isTypesNodePkgPath(path) {
+  return path.endsWith(".d.ts") && path.includes("/@types/node/");
 }
 function tryParseNpmPackageReference(text) {
   try {
@@ -22403,12 +22404,17 @@ function getJSXTransformEnabled(options) {
   return jsx === 2 /* React */ || jsx === 4 /* ReactJSX */ || jsx === 5 /* ReactJSXDev */;
 }
 function getJSXImplicitImportBase(compilerOptions, file) {
+  var _a;
   const jsxImportSourcePragmas = file == null ? void 0 : file.pragmas.get("jsximportsource");
   const jsxImportSourcePragma = isArray(jsxImportSourcePragmas) ? jsxImportSourcePragmas[jsxImportSourcePragmas.length - 1] : jsxImportSourcePragmas;
   const jsxRuntimePragmas = file == null ? void 0 : file.pragmas.get("jsxruntime");
   const jsxRuntimePragma = isArray(jsxRuntimePragmas) ? jsxRuntimePragmas[jsxRuntimePragmas.length - 1] : jsxRuntimePragmas;
   if ((jsxRuntimePragma == null ? void 0 : jsxRuntimePragma.arguments.factory) === "classic") {
     return void 0;
+  }
+  {
+    const resolvedJsxImportSource = file && ((_a = compilerOptions.resolveJsxImportSource) == null ? void 0 : _a.call(compilerOptions, file.fileName));
+    if (resolvedJsxImportSource) return resolvedJsxImportSource;
   }
   return compilerOptions.jsx === 4 /* ReactJSX */ || compilerOptions.jsx === 5 /* ReactJSXDev */ || compilerOptions.jsxImportSource || jsxImportSourcePragma || (jsxRuntimePragma == null ? void 0 : jsxRuntimePragma.arguments.factory) === "automatic" ? (jsxImportSourcePragma == null ? void 0 : jsxImportSourcePragma.arguments.factory) || compilerOptions.jsxImportSource || "react" : void 0;
 }
@@ -127190,7 +127196,7 @@ function createCreateProgramOptions(rootNames, options, host, oldProgram, config
   };
 }
 function createProgram(_rootNamesOrOptions, _options, _host, _oldProgram, _configFileParsingDiagnostics) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q;
   let _createProgramOptions = isArray(_rootNamesOrOptions) ? createCreateProgramOptions(_rootNamesOrOptions, _options, _host, _oldProgram, _configFileParsingDiagnostics) : _rootNamesOrOptions;
   const { rootNames, options, configFileParsingDiagnostics, projectReferences, typeScriptVersion: typeScriptVersion2, host: createProgramOptionsHost } = _createProgramOptions;
   let { oldProgram } = _createProgramOptions;
@@ -127325,6 +127331,8 @@ function createProgram(_rootNamesOrOptions, _options, _host, _oldProgram, _confi
   let redirectTargetsMap = createMultiMap();
   let usesUriStyleNodeCoreModules;
   const filesByName = /* @__PURE__ */ new Map();
+  let shouldLoadNodeTypes = false;
+  let foundNodeTypes = false;
   let missingFileNames = /* @__PURE__ */ new Map();
   const filesByNameIgnoreCase = host.useCaseSensitiveFileNames() ? /* @__PURE__ */ new Map() : void 0;
   let resolvedProjectReferences;
@@ -127442,6 +127450,25 @@ function createProgram(_rootNamesOrOptions, _options, _host, _oldProgram, _confi
           );
         });
       }
+    }
+    const hasTypesNodePackage = () => {
+      for (const path of filesByName.keys()) {
+        if (deno_exports.isTypesNodePkgPath(path)) {
+          return true;
+        }
+      }
+      return false;
+    };
+    if (foundNodeTypes && !hasTypesNodePackage()) {
+      shouldLoadNodeTypes = true;
+      processRootFile(
+        "asset:///lib.node.d.ts",
+        /*isDefaultLib*/
+        true,
+        /*ignoreNoDefaultLib*/
+        false,
+        { kind: 6 /* LibFile */, index: ((_o = options.lib) == null ? void 0 : _o.length) ?? 0 }
+      );
     }
     files = toSorted(processingDefaultLibFiles, compareDefaultLibFiles).concat(processingOtherFiles);
     processingDefaultLibFiles = void 0;
@@ -127563,7 +127590,7 @@ function createProgram(_rootNamesOrOptions, _options, _host, _oldProgram, _confi
     readFile,
     directoryExists,
     getSymlinkCache,
-    realpath: (_o = host.realpath) == null ? void 0 : _o.bind(host),
+    realpath: (_p = host.realpath) == null ? void 0 : _p.bind(host),
     useCaseSensitiveFileNames: () => host.useCaseSensitiveFileNames(),
     getCanonicalFileName,
     getFileIncludeReasons: () => programDiagnostics.getFileReasons(),
@@ -127577,7 +127604,7 @@ function createProgram(_rootNamesOrOptions, _options, _host, _oldProgram, _confi
   }
   mark("afterProgram");
   measure("Program", "beforeProgram", "afterProgram");
-  (_p = tracing) == null ? void 0 : _p.pop();
+  (_q = tracing) == null ? void 0 : _q.pop();
   return program;
   function getResolvedModule(file, moduleName, mode) {
     var _a2;
@@ -128799,6 +128826,10 @@ function createProgram(_rootNamesOrOptions, _options, _host, _oldProgram, _confi
     }
   }
   function processSourceFile(fileName, isDefaultLib, ignoreNoDefaultLib, packageId, reason) {
+    if (fileName === "asset:///lib.node.d.ts" && !shouldLoadNodeTypes) {
+      foundNodeTypes = true;
+      return;
+    }
     getSourceFileFromReferenceWorker(
       fileName,
       (fileName2) => findSourceFile(fileName2, isDefaultLib, ignoreNoDefaultLib, reason, packageId),
