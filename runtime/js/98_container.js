@@ -13,7 +13,61 @@ import {
   serializeJsMessageData,
 } from "ext:deno_web/13_message_port.js";
 
-const { Promise, Symbol, Error } = primordials;
+const { Promise, Symbol, Error, TypeError } = primordials;
+
+// Parse a size string like "64m", "1g", "512k" into bytes
+function parseMemoryLimit(limit) {
+  if (typeof limit === "number") return limit;
+  if (typeof limit !== "string") return undefined;
+
+  const match = limit.match(/^(\d+)\s*(k|m|g|kb|mb|gb)?$/i);
+  if (!match) throw new TypeError(`Invalid memory limit: ${limit}`);
+
+  const value = Number(match[1]);
+  const unit = (match[2] || "").toLowerCase();
+
+  switch (unit) {
+    case "k":
+    case "kb":
+      return value * 1024;
+    case "":
+    case "m":
+    case "mb":
+      return value * 1024 * 1024;
+    case "g":
+    case "gb":
+      return value * 1024 * 1024 * 1024;
+    default:
+      return value;
+  }
+}
+
+// Parse a timeout string like "5s", "500ms", "1m" into milliseconds
+function parseTimeout(timeout) {
+  if (typeof timeout === "number") return timeout;
+  if (typeof timeout !== "string") return undefined;
+
+  const match = timeout.match(/^(\d+)\s*(ms|s|m)?$/i);
+  if (!match) throw new TypeError(`Invalid timeout: ${timeout}`);
+
+  const value = Number(match[1]);
+  const unit = (match[2] || "").toLowerCase();
+
+  switch (unit) {
+    case "":
+    case "ms":
+      return value;
+    case "s":
+      return value * 1000;
+    case "m":
+      return value * 60 * 1000;
+    default:
+      return value;
+  }
+}
+
+// Track whether we're inside a container (for nesting control)
+let insideContainer = false;
 
 // The bootstrap code that runs inside the container worker.
 // Uses the standard Web Worker message API (onmessage/postMessage)
@@ -46,6 +100,18 @@ globalThis.onmessage = async function(e) {
 };
 `;
 
+// Bootstrap code that disables Deno.container() inside the container
+// when nest: false
+const CONTAINER_NO_NEST_BOOTSTRAP = `
+"use strict";
+if (typeof Deno !== "undefined" && Deno.container) {
+  Deno.container = function() {
+    throw new Error("Nesting is disabled for this container");
+  };
+  delete Deno.Container;
+}
+` + CONTAINER_BOOTSTRAP;
+
 let nextRequestId = 0;
 
 class Container {
@@ -54,27 +120,51 @@ class Container {
   #pendingRequests = new Map(); // requestId -> { resolve, reject }
   #controlPromise;
   #messagePromise;
+  #cpuTimeout; // per-request timeout in ms
 
   constructor(options = {}) {
     const {
-      permissions = {},
+      permissions = null,
       resources = {},
       nest = true,
     } = options;
 
-    // Create worker with the container bootstrap code.
-    // workerType "classic" triggers execute_script (sloppy mode) path,
-    // but we need "module" type for the worker runtime to be set up fully.
-    // With hasSourceCode: true and workerType "module", the code won't be
-    // executed as a module but via execute_script in sloppy mode.
+    // Parse resource limits
+    const memoryLimitBytes = resources.memoryLimit
+      ? parseMemoryLimit(resources.memoryLimit)
+      : undefined;
+    this.#cpuTimeout = resources.cpuTimeout
+      ? parseTimeout(resources.cpuTimeout)
+      : undefined;
+
+    // Build resource limits for the worker (V8 heap limits)
+    let resourceLimits = undefined;
+    if (memoryLimitBytes !== undefined) {
+      const memoryLimitMb = Math.ceil(memoryLimitBytes / (1024 * 1024));
+      resourceLimits = {
+        // Allocate ~80% to old generation, ~20% to young generation
+        maxOldGenerationSizeMb: Math.ceil(memoryLimitMb * 0.8),
+        maxYoungGenerationSizeMb: Math.max(
+          1,
+          Math.ceil(memoryLimitMb * 0.2),
+        ),
+      };
+    }
+
+    const bootstrapCode = nest
+      ? CONTAINER_BOOTSTRAP
+      : CONTAINER_NO_NEST_BOOTSTRAP;
+
+    // Create worker with the container bootstrap code
     this.#id = op_create_worker({
       hasSourceCode: true,
       name: "container",
       permissions: null,
-      sourceCode: CONTAINER_BOOTSTRAP,
+      sourceCode: bootstrapCode,
       specifier: "file:///container",
-      workerType: "module",
+      workerType: "node",
       closeOnIdle: false,
+      resourceLimits: resourceLimits || undefined,
     });
 
     // Start polling for control events and messages
@@ -90,18 +180,24 @@ class Container {
       if (this.#status === "closed") return;
 
       switch (type) {
-        case 1: // TerminalError
+        case 1: { // TerminalError
           this.#status = "closed";
+          const errorMsg = data?.message ||
+            "Container terminated with error";
           // Reject all pending requests
           for (const [, pending] of this.#pendingRequests) {
-            pending.reject(
-              new Error(data?.message || "Container terminated with error"),
-            );
+            pending.reject(new Error(errorMsg));
           }
           this.#pendingRequests.clear();
           return;
+        }
         case 3: // Close
           this.#status = "closed";
+          // Resolve remaining pending requests as undefined
+          for (const [, pending] of this.#pendingRequests) {
+            pending.reject(new Error("Container closed"));
+          }
+          this.#pendingRequests.clear();
           return;
       }
     }
@@ -128,6 +224,11 @@ class Container {
         const [id, pending] = firstEntry.value;
         this.#pendingRequests.delete(id);
 
+        // Clear the timeout if set
+        if (pending.timeoutId !== undefined) {
+          clearTimeout(pending.timeoutId);
+        }
+
         if (message.ok) {
           pending.resolve(message.value);
         } else {
@@ -140,14 +241,33 @@ class Container {
     }
   };
 
-  #sendRequest(msg) {
+  #sendRequest(msg, timeoutOverride) {
     if (this.#status !== "running") {
       return Promise.reject(new Error("Container is closed"));
     }
 
     const id = nextRequestId++;
+    const timeout = timeoutOverride !== undefined
+      ? timeoutOverride
+      : this.#cpuTimeout;
+
     const promise = new Promise((resolve, reject) => {
-      this.#pendingRequests.set(id, { resolve, reject });
+      const entry = { resolve, reject, timeoutId: undefined };
+
+      if (timeout !== undefined) {
+        entry.timeoutId = setTimeout(() => {
+          this.#pendingRequests.delete(id);
+          // Terminate the container on timeout
+          this.close();
+          reject(
+            new Error(
+              `Container execution timed out after ${timeout}ms`,
+            ),
+          );
+        }, timeout);
+      }
+
+      this.#pendingRequests.set(id, entry);
     });
 
     const data = serializeJsMessageData(msg, []);
@@ -156,16 +276,29 @@ class Container {
     return promise;
   }
 
-  async eval(code) {
-    return await this.#sendRequest({ type: "eval", code });
+  async eval(code, options = {}) {
+    const timeout = options.timeout !== undefined
+      ? parseTimeout(options.timeout)
+      : undefined;
+    return await this.#sendRequest({ type: "eval", code }, timeout);
   }
 
-  async execFile(path) {
-    return await this.#sendRequest({ type: "execFile", path });
+  async execFile(path, options = {}) {
+    const timeout = options.timeout !== undefined
+      ? parseTimeout(options.timeout)
+      : undefined;
+    return await this.#sendRequest({ type: "execFile", path }, timeout);
   }
 
   close() {
     if (this.#status === "running") {
+      // Clear all pending timeouts
+      for (const [, pending] of this.#pendingRequests) {
+        if (pending.timeoutId !== undefined) {
+          clearTimeout(pending.timeoutId);
+        }
+      }
+
       // Try to send a close message, then terminate
       try {
         const data = serializeJsMessageData({ type: "close" }, []);
