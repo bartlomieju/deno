@@ -649,9 +649,25 @@ pub async fn exec_command(
     None
   };
 
-  // Clone the stream for the two threads
+  // Clone the stream for the threads
   let stream_read = stream.try_clone()?;
   let stream_write = stream.try_clone()?;
+  let stream_winch = stream.try_clone()?;
+
+  // SIGWINCH handler — forward terminal resize events to the daemon
+  #[cfg(unix)]
+  {
+    let winch_writer = std::sync::Mutex::new(stream_winch);
+    // Register SIGWINCH handler
+    unsafe {
+      libc::signal(
+        libc::SIGWINCH,
+        sigwinch_handler as libc::sighandler_t,
+      );
+    }
+    // Store the writer in a global so the signal handler can use it
+    *WINCH_STREAM.lock().unwrap() = Some(winch_writer);
+  }
 
   // Thread 1: socket → stdout (PTY output → terminal)
   let stdout_handle = std::thread::spawn(move || {
@@ -755,3 +771,24 @@ fn enter_raw_mode() -> Result<(), AnyError> {
 
 #[cfg(not(unix))]
 fn restore_termios(_: &()) {}
+
+// Global state for SIGWINCH handler
+#[cfg(unix)]
+static WINCH_STREAM: std::sync::Mutex<
+  Option<std::sync::Mutex<std::os::unix::net::UnixStream>>,
+> = std::sync::Mutex::new(None);
+
+#[cfg(unix)]
+extern "C" fn sigwinch_handler(_sig: libc::c_int) {
+  // Get new terminal size and send resize escape to daemon
+  let (rows, cols) = term_size();
+  let msg = format!("\x1b[8;{};{}t", rows, cols);
+  if let Ok(guard) = WINCH_STREAM.lock() {
+    if let Some(ref stream_mutex) = *guard {
+      if let Ok(mut stream) = stream_mutex.lock() {
+        let _ = stream.write_all(msg.as_bytes());
+        let _ = stream.flush();
+      }
+    }
+  }
+}

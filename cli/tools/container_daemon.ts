@@ -189,7 +189,8 @@ function writeResponse(conn, response) {
   }
 }
 
-async function handleCommand(cmd, conn) {
+// Returns "exec" if the command took ownership of the connection (exec mode)
+async function handleCommand(cmd, conn): Promise<string | void> {
   switch (cmd.type) {
     case "create": {
       const id = nextId++;
@@ -459,72 +460,76 @@ async function handleCommand(cmd, conn) {
       // Set PTY master to non-blocking so reads don't block the event loop
       setNonBlocking(pty.masterFd);
 
-      // Stream PTY master ↔ socket
-      const buf = new Uint8Array(16384);
-      let alive = true;
+      // Launch the PTY streaming as a background task.
+      // We return "exec_takeover" so handleConnection exits its loop
+      // and this task exclusively owns the connection.
+      (async () => {
+        const buf = new Uint8Array(16384);
+        let alive = true;
 
-      // PTY master → socket (non-blocking poll)
-      const readLoop = (async () => {
-        while (alive) {
-          try {
-            const n = readFd(pty.masterFd, buf);
-            if (n > 0) {
-              await conn.write(buf.subarray(0, n));
-            } else if (n === 0) {
-              // EOF
+        // PTY master → socket (non-blocking poll)
+        const readLoop = (async () => {
+          while (alive) {
+            try {
+              const n = readFd(pty.masterFd, buf);
+              if (n > 0) {
+                await conn.write(buf.subarray(0, n));
+              } else if (n === 0) {
+                alive = false;
+                break;
+              } else {
+                // EAGAIN — no data available, yield
+                await new Promise((r) => setTimeout(r, 5));
+              }
+            } catch {
               alive = false;
               break;
-            } else {
-              // EAGAIN — no data available, yield
-              await new Promise((r) => setTimeout(r, 5));
             }
-          } catch {
-            alive = false;
-            break;
           }
-        }
-      })();
+        })();
 
-      // Socket → PTY master (async reads from socket)
-      const writeLoop = (async () => {
-        const sbuf = new Uint8Array(16384);
-        while (alive) {
-          try {
-            const n = await conn.read(sbuf);
-            if (n === null) {
-              alive = false;
-              break;
-            }
-            // Check for resize escape: \x1b[8;<rows>;<cols>t
-            const data = sbuf.subarray(0, n);
-            const resizeMatch = new TextDecoder().decode(data).match(
-              /\x1b\[8;(\d+);(\d+)t/
-            );
-            if (resizeMatch) {
-              setWinSize(pty.masterFd, Number(resizeMatch[1]), Number(resizeMatch[2]));
-              const cleaned = new TextEncoder().encode(
-                new TextDecoder().decode(data).replace(/\x1b\[8;\d+;\d+t/g, "")
+        // Socket → PTY master (async reads from socket)
+        const writeLoop = (async () => {
+          const sbuf = new Uint8Array(16384);
+          while (alive) {
+            try {
+              const n = await conn.read(sbuf);
+              if (n === null) {
+                alive = false;
+                break;
+              }
+              // Check for resize escape: \x1b[8;<rows>;<cols>t
+              const data = sbuf.subarray(0, n);
+              const resizeMatch = new TextDecoder().decode(data).match(
+                /\x1b\[8;(\d+);(\d+)t/
               );
-              if (cleaned.length > 0) writeFd(pty.masterFd, cleaned);
-            } else {
-              writeFd(pty.masterFd, data);
+              if (resizeMatch) {
+                setWinSize(pty.masterFd, Number(resizeMatch[1]), Number(resizeMatch[2]));
+                const cleaned = new TextEncoder().encode(
+                  new TextDecoder().decode(data).replace(/\x1b\[8;\d+;\d+t/g, "")
+                );
+                if (cleaned.length > 0) writeFd(pty.masterFd, cleaned);
+              } else {
+                writeFd(pty.masterFd, data);
+              }
+            } catch {
+              alive = false;
+              break;
             }
-          } catch {
-            alive = false;
-            break;
           }
-        }
+        })();
+
+        // Wait for the subprocess to exit
+        await child.status;
+        alive = false;
+
+        // Clean up
+        closeFd(pty.masterFd);
+        containers.delete(id);
+        try { conn.close(); } catch { /* */ }
       })();
 
-      // Wait for the subprocess to exit
-      const status = await child.status;
-      alive = false;
-
-      // Clean up
-      closeFd(pty.masterFd);
-      containers.delete(id);
-      try { conn.close(); } catch { /* */ }
-      return;
+      return "exec_takeover";
     }
 
     case "ping": {
@@ -567,7 +572,11 @@ async function handleConnection(conn) {
         if (!line.trim()) continue;
         try {
           const cmd = JSON.parse(line);
-          await handleCommand(cmd, conn);
+          const result = await handleCommand(cmd, conn);
+          if (result === "exec_takeover") {
+            // The exec handler now owns this connection — stop reading
+            return;
+          }
         } catch (e) {
           writeResponse(conn, { ok: false, error: `Parse error: ${e.message}` });
         }
