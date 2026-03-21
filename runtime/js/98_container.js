@@ -83,6 +83,12 @@ globalThis.onmessage = async function(e) {
       const result = (0, eval)(msg.code);
       const resolved = await result;
       response = { ok: true, value: typeof resolved === "undefined" ? undefined : String(resolved) };
+    } else if (msg.type === "evalAsync") {
+      // Wraps code in an async function to support top-level await
+      const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+      const fn = new AsyncFunction(msg.code);
+      const resolved = await fn();
+      response = { ok: true, value: typeof resolved === "undefined" ? undefined : String(resolved) };
     } else if (msg.type === "execFile") {
       const mod = await import(msg.path);
       response = { ok: true, value: mod.default !== undefined ? String(mod.default) : undefined };
@@ -283,11 +289,37 @@ class Container {
     return await this.#sendRequest({ type: "eval", code }, timeout);
   }
 
+  async evalAsync(code, options = {}) {
+    const timeout = options.timeout !== undefined
+      ? parseTimeout(options.timeout)
+      : undefined;
+    return await this.#sendRequest({ type: "evalAsync", code }, timeout);
+  }
+
+  async import(specifier) {
+    // Import a module (npm:, file:, https:, etc.) inside the container
+    return await this.#sendRequest({
+      type: "evalAsync",
+      code: `return await import(${JSON.stringify(specifier)});`,
+    });
+  }
+
   async execFile(path, options = {}) {
     const timeout = options.timeout !== undefined
       ? parseTimeout(options.timeout)
       : undefined;
     return await this.#sendRequest({ type: "execFile", path }, timeout);
+  }
+
+  async execNpm(packageName, options = {}) {
+    const timeout = options.timeout !== undefined
+      ? parseTimeout(options.timeout)
+      : undefined;
+    // Resolve npm package and execute its main/bin entry
+    const specifier = packageName.startsWith("npm:")
+      ? packageName
+      : `npm:${packageName}`;
+    return await this.#sendRequest({ type: "execFile", path: specifier }, timeout);
   }
 
   close() {
