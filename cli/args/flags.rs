@@ -286,6 +286,8 @@ pub struct ContainerFlags {
   pub no_nest: bool,
   /// Keep container alive after eval (detached mode)
   pub detach: bool,
+  /// Cron schedule (e.g. "@hourly", "@daily", "*/5 * * * *")
+  pub cron: Option<String>,
 }
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
@@ -3056,6 +3058,12 @@ With resource limits:
           .long("detach")
           .help("Keep the container alive in the daemon after execution")
           .action(ArgAction::SetTrue),
+      )
+      .arg(
+        Arg::new("cron")
+          .long("cron")
+          .help("Run on a cron schedule (e.g., @hourly, @daily, \"*/5 * * * *\")")
+          .value_name("SCHEDULE"),
       )
       .arg(
         Arg::new("allow-read")
@@ -6653,6 +6661,7 @@ fn container_parse(
   let cpu_timeout = matches.remove_one::<String>("timeout");
   let no_nest = matches.get_flag("no-nest");
   let detach = matches.get_flag("detach");
+  let cron = matches.remove_one::<String>("cron");
 
   flags.subcommand = DenoSubcommand::Container(ContainerFlags {
     script,
@@ -6660,7 +6669,8 @@ fn container_parse(
     memory_limit,
     cpu_timeout,
     no_nest,
-    detach,
+    detach: detach || cron.is_some(), // cron implies detach
+    cron,
   });
   Ok(())
 }

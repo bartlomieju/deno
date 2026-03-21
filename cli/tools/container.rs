@@ -217,15 +217,38 @@ pub async fn container_command(
     .or(container_flags.eval_code.as_deref().map(|_| "(eval)"))
     .unwrap_or("(container)");
 
+  // Build the action to execute (eval code, script path, or npm specifier)
+  let action = if let Some(ref code) = container_flags.eval_code {
+    serde_json::json!({ "kind": "eval", "code": code })
+  } else if let Some(ref script) = container_flags.script {
+    if script.starts_with("npm:") {
+      serde_json::json!({ "kind": "execFile", "path": script })
+    } else {
+      let abs_path = std::env::current_dir()
+        .unwrap_or_default()
+        .join(script)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(script));
+      serde_json::json!({ "kind": "execFile", "path": abs_path.display().to_string() })
+    }
+  } else {
+    serde_json::json!(null)
+  };
+
   // Create container in daemon
-  let create_resp = daemon_request(&serde_json::json!({
+  let mut create_cmd = serde_json::json!({
     "type": "create",
     "name": entry_name,
     "resources": resources,
     "nest": !container_flags.no_nest,
     "entry": entry_name,
     "cwd": std::env::current_dir().ok().map(|p| p.display().to_string()),
-  }))?;
+    "action": action,
+  });
+  if let Some(ref cron) = container_flags.cron {
+    create_cmd["cron"] = serde_json::Value::String(cron.clone());
+  }
+  let create_resp = daemon_request(&create_cmd)?;
 
   if create_resp["ok"] != true {
     return Err(anyhow::anyhow!(
@@ -238,7 +261,17 @@ pub async fn container_command(
     .as_u64()
     .ok_or_else(|| anyhow::anyhow!("No container ID returned"))?;
 
-  // Execute the appropriate action
+  // For cron containers, the daemon handles scheduling — we're done
+  if container_flags.cron.is_some() {
+    eprintln!(
+      "Container {} scheduled (cron: {}).",
+      container_id,
+      container_flags.cron.as_deref().unwrap()
+    );
+    return Ok(0);
+  }
+
+  // Execute the appropriate action for non-cron containers
   let result = if let Some(ref code) = container_flags.eval_code {
     daemon_request(&serde_json::json!({
       "type": "eval",
@@ -253,7 +286,6 @@ pub async fn container_command(
         "path": script,
       }))
     } else {
-      // Resolve to absolute path
       let abs_path = std::env::current_dir()
         .unwrap_or_default()
         .join(script)
@@ -280,7 +312,6 @@ pub async fn container_command(
     }
   } else {
     eprintln!("{}", resp["error"].as_str().unwrap_or("Unknown error"));
-    // Clean up the container
     let _ = daemon_request(&serde_json::json!({
       "type": "close",
       "id": container_id,
@@ -291,7 +322,6 @@ pub async fn container_command(
   if container_flags.detach {
     eprintln!("Container {} running in daemon (detached).", container_id);
   } else {
-    // Clean up — close the container after eval
     let _ = daemon_request(&serde_json::json!({
       "type": "close",
       "id": container_id,
@@ -327,31 +357,59 @@ pub async fn ps_command() -> Result<i32, AnyError> {
   let pid = std::fs::read_to_string(pid_path()).unwrap_or_default();
   eprintln!("Daemon PID: {}", pid.trim());
   println!(
-    "{:<6} {:<25} {:<25} {:<10} {:<10} {:<12}",
-    "ID", "NAME", "CWD", "REQS", "ERRS", "UPTIME"
+    "{:<6} {:<8} {:<22} {:<22} {:<8} {:<8} {:<10}",
+    "ID", "TYPE", "NAME", "CWD", "REQS", "ERRS", "UPTIME"
   );
 
   for c in containers {
     let uptime_ms = c["uptimeMs"].as_u64().unwrap_or(0);
-    let uptime_str = if uptime_ms > 60_000 {
-      format!("{}m{}s", uptime_ms / 60_000, (uptime_ms % 60_000) / 1000)
+    let uptime_str = if uptime_ms > 86_400_000 {
+      format!(
+        "{}d{}h",
+        uptime_ms / 86_400_000,
+        (uptime_ms % 86_400_000) / 3_600_000
+      )
+    } else if uptime_ms > 3_600_000 {
+      format!(
+        "{}h{}m",
+        uptime_ms / 3_600_000,
+        (uptime_ms % 3_600_000) / 60_000
+      )
+    } else if uptime_ms > 60_000 {
+      format!(
+        "{}m{}s",
+        uptime_ms / 60_000,
+        (uptime_ms % 60_000) / 1000
+      )
     } else if uptime_ms > 1_000 {
       format!("{}s", uptime_ms / 1000)
     } else {
       format!("{}ms", uptime_ms)
     };
 
+    let container_type = c["containerType"]
+      .as_str()
+      .unwrap_or("run");
+
     let cwd = c["cwd"].as_str().unwrap_or("");
-    let short_cwd = if cwd.len() > 24 {
-      format!("...{}", &cwd[cwd.len() - 21..])
+    let short_cwd = if cwd.len() > 21 {
+      format!("...{}", &cwd[cwd.len() - 18..])
     } else {
       cwd.to_string()
     };
 
+    let name = c["name"].as_str().unwrap_or("?");
+    let short_name = if name.len() > 21 {
+      format!("{}...", &name[..18])
+    } else {
+      name.to_string()
+    };
+
     println!(
-      "{:<6} {:<25} {:<25} {:<10} {:<10} {:<12}",
+      "{:<6} {:<8} {:<22} {:<22} {:<8} {:<8} {:<10}",
       c["id"].as_u64().unwrap_or(0),
-      c["name"].as_str().unwrap_or("?"),
+      container_type,
+      short_name,
       short_cwd,
       c["requestCount"].as_u64().unwrap_or(0),
       c["errorCount"].as_u64().unwrap_or(0),

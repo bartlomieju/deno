@@ -25,9 +25,138 @@ try {
   // doesn't exist, fine
 }
 
-// Container registry: id -> { container, entry, cwd, createdAt }
+// Container registry: id -> { container, entry, cwd, createdAt, type, cron?, action? }
 const containers = new Map();
 let nextId = 1;
+
+// --- Cron schedule parser ---
+// Supports: @yearly, @monthly, @weekly, @daily, @hourly, @every_Ns/Nm/Nh,
+// and standard 5-field cron expressions (minute hour dom month dow)
+
+const CRON_ALIASES: Record<string, string> = {
+  "@yearly": "0 0 1 1 *",
+  "@annually": "0 0 1 1 *",
+  "@monthly": "0 0 1 * *",
+  "@weekly": "0 0 * * 0",
+  "@daily": "0 0 * * *",
+  "@midnight": "0 0 * * *",
+  "@hourly": "0 * * * *",
+};
+
+function parseCronField(field: string, min: number, max: number): number[] {
+  const values: number[] = [];
+  for (const part of field.split(",")) {
+    const stepMatch = part.match(/^(.+)\/(\d+)$/);
+    const step = stepMatch ? Number(stepMatch[2]) : 1;
+    const range = stepMatch ? stepMatch[1] : part;
+
+    if (range === "*") {
+      for (let i = min; i <= max; i += step) values.push(i);
+    } else if (range.includes("-")) {
+      const [a, b] = range.split("-").map(Number);
+      for (let i = a; i <= b; i += step) values.push(i);
+    } else {
+      values.push(Number(range));
+    }
+  }
+  return values;
+}
+
+interface CronSchedule {
+  type: "cron";
+  minutes: number[];
+  hours: number[];
+  daysOfMonth: number[];
+  months: number[];
+  daysOfWeek: number[];
+}
+
+interface IntervalSchedule {
+  type: "interval";
+  intervalMs: number;
+}
+
+type Schedule = CronSchedule | IntervalSchedule;
+
+function parseSchedule(expr: string): Schedule {
+  // Handle @every_Xs, @every_Xm, @every_Xh
+  const everyMatch = expr.match(/^@every[_\s]?(\d+)(s|m|h)$/i);
+  if (everyMatch) {
+    const val = Number(everyMatch[1]);
+    const unit = everyMatch[2].toLowerCase();
+    const ms = unit === "s" ? val * 1000 : unit === "m" ? val * 60000 : val * 3600000;
+    return { type: "interval", intervalMs: ms };
+  }
+
+  const resolved = CRON_ALIASES[expr.toLowerCase()] || expr;
+  const parts = resolved.trim().split(/\s+/);
+  if (parts.length !== 5) throw new Error(`Invalid cron expression: ${expr}`);
+
+  return {
+    type: "cron",
+    minutes: parseCronField(parts[0], 0, 59),
+    hours: parseCronField(parts[1], 0, 23),
+    daysOfMonth: parseCronField(parts[2], 1, 31),
+    months: parseCronField(parts[3], 1, 12),
+    daysOfWeek: parseCronField(parts[4], 0, 6),
+  };
+}
+
+function cronMatches(schedule: CronSchedule, date: Date): boolean {
+  return (
+    schedule.minutes.includes(date.getMinutes()) &&
+    schedule.hours.includes(date.getHours()) &&
+    schedule.daysOfMonth.includes(date.getDate()) &&
+    schedule.months.includes(date.getMonth() + 1) &&
+    schedule.daysOfWeek.includes(date.getDay())
+  );
+}
+
+async function executeCronAction(record: any) {
+  if (!record.action) return;
+  record.runCount = (record.runCount || 0) + 1;
+  record.lastRun = Date.now();
+
+  try {
+    if (record.action.kind === "eval") {
+      await record.container.eval(record.action.code);
+    } else if (record.action.kind === "execFile") {
+      await record.container.execFile(record.action.path);
+    }
+  } catch (e) {
+    record.lastError = e.message;
+  }
+}
+
+// Cron scheduler — checks every second
+setInterval(() => {
+  const now = new Date();
+  // Only fire at the start of each minute (second 0)
+  if (now.getSeconds() !== 0) return;
+
+  for (const [_id, record] of containers) {
+    if (record.containerType !== "cron" || !record.schedule) continue;
+    if (record.container.closed) continue;
+
+    if (record.schedule.type === "cron" && cronMatches(record.schedule, now)) {
+      executeCronAction(record);
+    }
+  }
+}, 1000);
+
+// Interval scheduler — for @every_Xs/Xm/Xh
+function startIntervalScheduler(record: any) {
+  if (record.schedule?.type !== "interval") return;
+  // Run immediately on creation, then on interval
+  executeCronAction(record);
+  record.intervalHandle = setInterval(() => {
+    if (record.container.closed) {
+      clearInterval(record.intervalHandle);
+      return;
+    }
+    executeCronAction(record);
+  }, record.schedule.intervalMs);
+}
 
 function writeResponse(conn, response) {
   const msg = JSON.stringify(response) + "\n";
@@ -48,12 +177,37 @@ async function handleCommand(cmd, conn) {
         resources: cmd.resources || {},
         nest: cmd.nest !== false,
       });
-      containers.set(id, {
+      const isCron = !!cmd.cron;
+      const record: any = {
         container: c,
         entry: cmd.entry || "(eval)",
         cwd: cmd.cwd || "",
         createdAt: Date.now(),
-      });
+        containerType: isCron ? "cron" : "run",
+        action: cmd.action || null,
+        runCount: 0,
+        lastRun: null,
+        lastError: null,
+      };
+
+      if (isCron) {
+        try {
+          record.schedule = parseSchedule(cmd.cron);
+          record.cronExpr = cmd.cron;
+        } catch (e) {
+          c.close();
+          writeResponse(conn, { ok: false, error: `Invalid cron: ${e.message}` });
+          return;
+        }
+      }
+
+      containers.set(id, record);
+
+      // Start interval scheduler if applicable
+      if (isCron && record.schedule?.type === "interval") {
+        startIntervalScheduler(record);
+      }
+
       writeResponse(conn, { ok: true, id });
       return;
     }
@@ -108,21 +262,30 @@ async function handleCommand(cmd, conn) {
       for (const [id, record] of containers) {
         const c = record.container;
         if (c.closed) {
+          // Clean up interval timers for cron containers
+          if (record.intervalHandle) clearInterval(record.intervalHandle);
           containers.delete(id);
           continue;
         }
         const stats = c.stats();
-        list.push({
+        const entry: any = {
           id,
           name: stats.name,
           entry: record.entry,
           cwd: record.cwd,
+          containerType: record.containerType || "run",
           uptimeMs: stats.uptimeMs,
           requestCount: stats.requestCount,
           errorCount: stats.errorCount,
           cpuUsage: stats.cpuUsage,
-          memMb: stats.cpuUsage ? undefined : undefined, // placeholder
-        });
+        };
+        if (record.containerType === "cron") {
+          entry.cronExpr = record.cronExpr;
+          entry.runCount = record.runCount || 0;
+          entry.lastRun = record.lastRun;
+          entry.lastError = record.lastError;
+        }
+        list.push(entry);
       }
       writeResponse(conn, { ok: true, containers: list });
       return;
@@ -134,6 +297,7 @@ async function handleCommand(cmd, conn) {
         writeResponse(conn, { ok: false, error: `Container ${cmd.id} not found` });
         return;
       }
+      if (record.intervalHandle) clearInterval(record.intervalHandle);
       record.container.close();
       containers.delete(cmd.id);
       writeResponse(conn, { ok: true });
@@ -143,6 +307,7 @@ async function handleCommand(cmd, conn) {
     case "close": {
       const record = containers.get(cmd.id);
       if (record) {
+        if (record.intervalHandle) clearInterval(record.intervalHandle);
         record.container.close();
         containers.delete(cmd.id);
       }
