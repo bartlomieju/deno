@@ -556,6 +556,7 @@ async function handleConnection(conn) {
   const decoder = new TextDecoder();
   const buf = new Uint8Array(65536);
   let partial = "";
+  let takenOver = false;
 
   try {
     while (true) {
@@ -574,7 +575,9 @@ async function handleConnection(conn) {
           const cmd = JSON.parse(line);
           const result = await handleCommand(cmd, conn);
           if (result === "exec_takeover") {
-            // The exec handler now owns this connection — stop reading
+            // The exec handler now owns this connection.
+            // Do NOT close it — exec manages the lifecycle.
+            takenOver = true;
             return;
           }
         } catch (e) {
@@ -585,7 +588,9 @@ async function handleConnection(conn) {
   } catch {
     // connection reset
   } finally {
-    try { conn.close(); } catch { /* */ }
+    if (!takenOver) {
+      try { conn.close(); } catch { /* */ }
+    }
   }
 }
 
