@@ -364,6 +364,7 @@ pub async fn ps_command() -> Result<i32, AnyError> {
     typ: String,
     name: String,
     cwd: String,
+    mem: String,
     reqs: String,
     errs: String,
     uptime: String,
@@ -410,6 +411,19 @@ pub async fn ps_command() -> Result<i32, AnyError> {
       cwd_raw.to_string()
     };
 
+    let mem = if let Some(memory) = c.get("memory") {
+      let heap_used = memory["heapUsed"].as_u64().unwrap_or(0);
+      if heap_used > 1_048_576 {
+        format!("{:.1}MB", heap_used as f64 / 1_048_576.0)
+      } else if heap_used > 1024 {
+        format!("{}KB", heap_used / 1024)
+      } else {
+        format!("{}B", heap_used)
+      }
+    } else {
+      "-".to_string()
+    };
+
     rows.push(Row {
       id: c["id"].as_u64().unwrap_or(0).to_string(),
       typ: c["containerType"]
@@ -418,6 +432,7 @@ pub async fn ps_command() -> Result<i32, AnyError> {
         .to_string(),
       name,
       cwd,
+      mem,
       reqs: c["requestCount"].as_u64().unwrap_or(0).to_string(),
       errs: c["errorCount"].as_u64().unwrap_or(0).to_string(),
       uptime,
@@ -425,10 +440,10 @@ pub async fn ps_command() -> Result<i32, AnyError> {
   }
 
   // Column widths: max of header and all values, plus padding
-  let headers = ["ID", "TYPE", "NAME", "CWD", "REQS", "ERRS", "UPTIME"];
+  let headers = ["ID", "TYPE", "NAME", "CWD", "MEM", "REQS", "ERRS", "UPTIME"];
   let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
   for r in &rows {
-    let vals = [&r.id, &r.typ, &r.name, &r.cwd, &r.reqs, &r.errs, &r.uptime];
+    let vals = [&r.id, &r.typ, &r.name, &r.cwd, &r.mem, &r.reqs, &r.errs, &r.uptime];
     for (i, v) in vals.iter().enumerate() {
       widths[i] = widths[i].max(v.len());
     }
@@ -464,7 +479,7 @@ pub async fn ps_command() -> Result<i32, AnyError> {
 
   // Rows
   for r in &rows {
-    let vals = [&r.id, &r.typ, &r.name, &r.cwd, &r.reqs, &r.errs, &r.uptime];
+    let vals = [&r.id, &r.typ, &r.name, &r.cwd, &r.mem, &r.reqs, &r.errs, &r.uptime];
     let cells: Vec<String> = vals
       .iter()
       .zip(widths.iter())

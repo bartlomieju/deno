@@ -9,6 +9,7 @@ interface Container {
   errorCount: number;
   uptimeMs: number;
   cpuUsage?: { user: number; system: number };
+  memory?: { rss: number; heapTotal: number; heapUsed: number; external: number };
   cronExpr?: string;
   runCount?: number;
 }
@@ -25,6 +26,13 @@ function formatUptime(ms: number): string {
   if (ms > 60000) return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
   if (ms > 1000) return `${Math.floor(ms / 1000)}s`;
   return `${ms}ms`;
+}
+
+function formatMem(bytes?: number): string {
+  if (bytes === undefined) return "-";
+  if (bytes > 1048576) return `${(bytes / 1048576).toFixed(1)}MB`;
+  if (bytes > 1024) return `${Math.floor(bytes / 1024)}KB`;
+  return `${bytes}B`;
 }
 
 function formatTs(ts: number): string {
@@ -135,6 +143,7 @@ export default function Dashboard() {
   const totalReqs = containers.reduce((s, c) => s + c.requestCount, 0);
   const totalErrs = containers.reduce((s, c) => s + c.errorCount, 0);
   const cronCount = containers.filter((c) => c.containerType === "cron").length;
+  const totalMem = containers.reduce((s, c) => s + (c.memory?.heapUsed || 0), 0);
 
   return (
     <div>
@@ -237,6 +246,10 @@ export default function Dashboard() {
             <div class="value">{totalReqs}</div>
           </div>
           <div class="stat-card">
+            <div class="label">Memory</div>
+            <div class="value">{formatMem(totalMem)}</div>
+          </div>
+          <div class="stat-card">
             <div class="label">Errors</div>
             <div class="value" style={totalErrs > 0 ? "color:#f87171" : ""}>{totalErrs}</div>
           </div>
@@ -255,6 +268,7 @@ export default function Dashboard() {
                 <th>Type</th>
                 <th>Name</th>
                 <th>CWD</th>
+                <th>Memory</th>
                 <th>Requests</th>
                 <th>Errors</th>
                 <th>Uptime</th>
@@ -272,6 +286,7 @@ export default function Dashboard() {
                   </td>
                   <td style="color:#fff">{c.name}</td>
                   <td style="color:#666;font-size:11px">{c.cwd}</td>
+                  <td style="color:#22d3ee">{formatMem(c.memory?.heapUsed)}</td>
                   <td>{c.requestCount}</td>
                   <td style={c.errorCount > 0 ? "color:#f87171" : ""}>{c.errorCount}</td>
                   <td>{formatUptime(c.uptimeMs)}</td>

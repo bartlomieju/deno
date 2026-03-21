@@ -123,6 +123,11 @@ globalThis.onmessage = async function(e) {
       response = { ok: true, value: JSON.stringify({ logs, nextFrom: globalThis.__logs.length }) };
       globalThis.postMessage(response);
       return;
+    } else if (msg.type === "getMemory") {
+      const mem = Deno.memoryUsage();
+      response = { ok: true, value: JSON.stringify(mem) };
+      globalThis.postMessage(response);
+      return;
     } else if (msg.type === "close") {
       globalThis.close();
       return;
@@ -364,6 +369,11 @@ class Container {
       ? parseTimeout(options.timeout)
       : undefined;
     return await this.#sendRequest({ type: "execFile", path }, timeout);
+  }
+
+  async memoryUsage() {
+    const result = await this.#sendRequest({ type: "getMemory" });
+    return JSON.parse(result);
   }
 
   async logs(options = {}) {

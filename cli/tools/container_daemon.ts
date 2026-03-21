@@ -116,17 +116,16 @@ async function collectLogs(record: any) {
   if (!record.container || record.container.closed) return;
   try {
     const resp = await record.container.logs({ from: record.logNextFrom });
-    // resp is the raw string from getLogs — parse it
-    // Actually, logs() returns the result via the message channel,
-    // which comes back as the deserialized response object
     if (resp && typeof resp === "string") {
-      try {
-        const parsed = JSON.parse(resp);
-        if (parsed.logs) {
-          for (const l of parsed.logs) record.logs.push(l);
-          record.logNextFrom = parsed.nextFrom;
+      const parsed = JSON.parse(resp);
+      if (parsed.logs && parsed.logs.length > 0) {
+        for (const l of parsed.logs) {
+          record.logs.push(l);
+          // Cap at 10000 lines
+          if (record.logs.length > 10000) record.logs.shift();
         }
-      } catch { /* not JSON, ignore */ }
+        record.logNextFrom = parsed.nextFrom;
+      }
     }
   } catch { /* container may be busy or closed */ }
 }
@@ -299,10 +298,11 @@ async function handleCommand(cmd, conn) {
 
     case "list": {
       const list = [];
+      const memoryPromises = [];
+
       for (const [id, record] of containers) {
         const c = record.container;
         if (c.closed) {
-          // Clean up interval timers for cron containers
           if (record.intervalHandle) clearInterval(record.intervalHandle);
           containers.delete(id);
           continue;
@@ -326,7 +326,21 @@ async function handleCommand(cmd, conn) {
           entry.lastError = record.lastError;
         }
         list.push(entry);
+
+        // Query memory usage from the container (async)
+        memoryPromises.push(
+          c.memoryUsage()
+            .then((mem: any) => { entry.memory = mem; })
+            .catch(() => { /* container busy or closed */ })
+        );
       }
+
+      // Wait for all memory queries (with a timeout)
+      await Promise.race([
+        Promise.allSettled(memoryPromises),
+        new Promise((r) => setTimeout(r, 2000)),
+      ]);
+
       writeResponse(conn, { ok: true, containers: list });
       return;
     }
