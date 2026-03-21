@@ -145,6 +145,25 @@ globalThis.onmessage = async function(e) {
 };
 `;
 
+// Bootstrap for exec mode - runs a module directly with native console
+// (no message interception). The module specifier is received via the
+// first message from the host.
+const CONTAINER_EXEC_BOOTSTRAP = `
+"use strict";
+globalThis.onmessage = async function(e) {
+  const msg = e.data;
+  if (msg.type === "execModule") {
+    try {
+      await import(msg.specifier);
+    } catch(e) {
+      console.error("Container exec error:", e);
+    }
+    // Signal completion
+    globalThis.postMessage({ ok: true, value: "done" });
+  }
+};
+`;
+
 // Bootstrap code that disables Deno.container() inside the container
 // when nest: false
 const CONTAINER_NO_NEST_BOOTSTRAP = `
@@ -184,6 +203,7 @@ class Container {
       resources = {},
       nest = true,
       name = "container",
+      ptyPath = null,
     } = options;
 
     this.#createdAt = Date.now();
@@ -211,9 +231,9 @@ class Container {
       };
     }
 
-    const bootstrapCode = nest
-      ? CONTAINER_BOOTSTRAP
-      : CONTAINER_NO_NEST_BOOTSTRAP;
+    const bootstrapCode = ptyPath
+      ? CONTAINER_EXEC_BOOTSTRAP
+      : (nest ? CONTAINER_BOOTSTRAP : CONTAINER_NO_NEST_BOOTSTRAP);
 
     // Create worker with the container bootstrap code
     this.#id = op_create_worker({
@@ -222,9 +242,10 @@ class Container {
       permissions: null,
       sourceCode: bootstrapCode,
       specifier: "file:///container",
-      workerType: "node",
-      closeOnIdle: false,
+      workerType: ptyPath ? "module" : "node",
+      closeOnIdle: ptyPath ? true : false,
       resourceLimits: resourceLimits || undefined,
+      ptySlavePath: ptyPath || undefined,
     });
 
     // Register in global registry
@@ -379,6 +400,12 @@ class Container {
   async logs(options = {}) {
     const from = options.from || 0;
     return await this.#sendRequest({ type: "getLogs", from });
+  }
+
+  async execModule(specifier) {
+    // For exec mode containers: sends the specifier to the exec bootstrap
+    // which imports it with native console (no message interception).
+    return await this.#sendRequest({ type: "execModule", specifier });
   }
 
   async execNpm(packageName, options = {}) {

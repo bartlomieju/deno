@@ -54,6 +54,9 @@ pub struct CreateWebWorkerArgs {
   pub close_on_idle: bool,
   pub maybe_worker_metadata: Option<WorkerMetadata>,
   pub resource_limits: Option<ResourceLimits>,
+  /// If set, the worker's stdin/stdout/stderr will be connected to this
+  /// PTY slave device, giving the worker a real terminal.
+  pub pty_slave_path: Option<String>,
 }
 
 pub type CreateWebWorkerCb = dyn Fn(CreateWebWorkerArgs) -> (WebWorker, SendableWebWorkerHandle)
@@ -135,6 +138,7 @@ pub struct CreateWorkerArgs {
   worker_type: WorkerThreadType,
   close_on_idle: bool,
   resource_limits: Option<ResourceLimits>,
+  pty_slave_path: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error, deno_error::JsError)]
@@ -250,6 +254,7 @@ fn op_create_worker(
           close_on_idle: args.close_on_idle,
           maybe_worker_metadata,
           resource_limits: args.resource_limits,
+          pty_slave_path: args.pty_slave_path,
         });
 
       // Send thread safe handle from newly created worker to host thread

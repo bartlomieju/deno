@@ -473,7 +473,33 @@ impl<TSys: DenoLibSys> LibWorkerFactorySharedState<TSys> {
           format_js_error(a, maybe_initial_cwd.as_ref())
         })),
         worker_type: args.worker_type,
-        stdio: stdio.clone(),
+        stdio: if let Some(ref pty_path) = args.pty_slave_path {
+          // Open the PTY slave device for the worker's stdin/stdout/stderr.
+          // This gives the worker a real terminal (isatty() = true).
+          // We use libc::open with O_RDWR | O_NOCTTY to avoid making it
+          // the controlling terminal of the process (which would affect
+          // all threads).
+          use deno_runtime::deno_io::StdioPipe;
+          use std::fs::OpenOptions;
+
+          let open_pty_fd = || -> std::fs::File {
+            OpenOptions::new()
+              .read(true)
+              .write(true)
+              .open(pty_path)
+              .unwrap_or_else(|e| {
+                panic!("Failed to open PTY slave {}: {}", pty_path, e)
+              })
+          };
+
+          deno_runtime::deno_io::Stdio {
+            stdin: StdioPipe::file(open_pty_fd()),
+            stdout: StdioPipe::file(open_pty_fd()),
+            stderr: StdioPipe::file(open_pty_fd()),
+          }
+        } else {
+          stdio.clone()
+        },
         cache_storage_dir,
         trace_ops: shared.options.trace_ops.clone(),
         close_on_idle: args.close_on_idle,

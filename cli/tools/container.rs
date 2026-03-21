@@ -108,6 +108,7 @@ fn start_daemon() -> Result<(), AnyError> {
         .arg("run")
         .arg("-A")
         .arg("--unstable-worker-options")
+        .arg("--unstable-ffi")
         .arg(&script)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
