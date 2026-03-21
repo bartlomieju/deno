@@ -284,6 +284,16 @@ pub struct ContainerFlags {
   pub cpu_timeout: Option<String>,
   /// Whether nesting is allowed
   pub no_nest: bool,
+  /// Keep container alive after eval (detached mode)
+  pub detach: bool,
+}
+
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
+pub struct ContainerPsFlags;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContainerKillFlags {
+  pub id: u64,
 }
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
@@ -642,6 +652,8 @@ pub enum DenoSubcommand {
   Deploy(DeployFlags),
   Doc(DocFlags),
   Container(ContainerFlags),
+  ContainerPs(ContainerPsFlags),
+  ContainerKill(ContainerKillFlags),
   Eval(EvalFlags),
   Fmt(FmtFlags),
   Init(InitFlags),
@@ -3039,6 +3051,13 @@ With resource limits:
           .action(ArgAction::SetTrue),
       )
       .arg(
+        Arg::new("detach")
+          .short('d')
+          .long("detach")
+          .help("Keep the container alive in the daemon after execution")
+          .action(ArgAction::SetTrue),
+      )
+      .arg(
         Arg::new("allow-read")
           .long("allow-read")
           .help("Allow file system read access")
@@ -3080,6 +3099,20 @@ With resource limits:
           .long("allow-all")
           .help("Allow all permissions")
           .action(ArgAction::SetTrue),
+      )
+      .subcommand(
+        Command::new("ps")
+          .about("List running containers in the daemon"),
+      )
+      .subcommand(
+        Command::new("kill")
+          .about("Kill a running container")
+          .arg(
+            Arg::new("container-id")
+              .required(true)
+              .value_name("ID")
+              .help("Container ID to kill"),
+          ),
       )
   })
 }
@@ -6586,6 +6619,31 @@ fn container_parse(
   // will enforce scoped permissions via Deno.container() options.
   flags.allow_all();
 
+  // Check for nested subcommands: ps, kill
+  if let Some((sub, mut sub_matches)) = matches.remove_subcommand() {
+    match sub.as_str() {
+      "ps" => {
+        flags.subcommand = DenoSubcommand::ContainerPs(ContainerPsFlags);
+        return Ok(());
+      }
+      "kill" => {
+        let id_str = sub_matches
+          .remove_one::<String>("container-id")
+          .unwrap();
+        let id: u64 = id_str.parse().map_err(|_| {
+          clap::Error::raw(
+            clap::error::ErrorKind::InvalidValue,
+            format!("Invalid container ID: {id_str}\n"),
+          )
+        })?;
+        flags.subcommand =
+          DenoSubcommand::ContainerKill(ContainerKillFlags { id });
+        return Ok(());
+      }
+      _ => {}
+    }
+  }
+
   let script = matches
     .remove_many::<String>("script")
     .map(|mut args| args.next())
@@ -6594,6 +6652,7 @@ fn container_parse(
   let memory_limit = matches.remove_one::<String>("memory");
   let cpu_timeout = matches.remove_one::<String>("timeout");
   let no_nest = matches.get_flag("no-nest");
+  let detach = matches.get_flag("detach");
 
   flags.subcommand = DenoSubcommand::Container(ContainerFlags {
     script,
@@ -6601,6 +6660,7 @@ fn container_parse(
     memory_limit,
     cpu_timeout,
     no_nest,
+    detach,
   });
   Ok(())
 }
