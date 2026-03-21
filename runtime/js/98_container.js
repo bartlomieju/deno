@@ -204,6 +204,7 @@ class Container {
       nest = true,
       name = "container",
       ptyPath = null,
+      execSpecifier = null,
     } = options;
 
     this.#createdAt = Date.now();
@@ -231,22 +232,38 @@ class Container {
       };
     }
 
-    const bootstrapCode = ptyPath
-      ? CONTAINER_EXEC_BOOTSTRAP
-      : (nest ? CONTAINER_BOOTSTRAP : CONTAINER_NO_NEST_BOOTSTRAP);
+    if (execSpecifier) {
+      // Exec mode: load the specifier directly as the worker's main module.
+      // No bootstrap code - the module runs directly with PTY as stdio.
+      this.#id = op_create_worker({
+        hasSourceCode: false,
+        name,
+        permissions: null,
+        sourceCode: "",
+        specifier: execSpecifier,
+        workerType: "module",
+        closeOnIdle: true,
+        resourceLimits: resourceLimits || undefined,
+        ptySlavePath: ptyPath || undefined,
+      });
+    } else {
+      const bootstrapCode = nest
+        ? CONTAINER_BOOTSTRAP
+        : CONTAINER_NO_NEST_BOOTSTRAP;
 
-    // Create worker with the container bootstrap code
-    this.#id = op_create_worker({
-      hasSourceCode: true,
-      name,
-      permissions: null,
-      sourceCode: bootstrapCode,
-      specifier: "file:///container",
-      workerType: ptyPath ? "module" : "node",
-      closeOnIdle: ptyPath ? true : false,
-      resourceLimits: resourceLimits || undefined,
-      ptySlavePath: ptyPath || undefined,
-    });
+      // Eval mode: load bootstrap code that handles eval/execFile messages.
+      this.#id = op_create_worker({
+        hasSourceCode: true,
+        name,
+        permissions: null,
+        sourceCode: bootstrapCode,
+        specifier: "file:///container",
+        workerType: "node",
+        closeOnIdle: false,
+        resourceLimits: resourceLimits || undefined,
+        ptySlavePath: ptyPath || undefined,
+      });
+    }
 
     // Register in global registry
     containerRegistry.set(this.#id, this);

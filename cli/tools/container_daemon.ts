@@ -434,8 +434,9 @@ async function handleCommand(cmd, conn): Promise<string | void> {
       }
 
       const isNpm = specifier.startsWith("npm:");
+      const isUrl = specifier.startsWith("file://") || specifier.startsWith("http://") || specifier.startsWith("https://");
       const isJsTsFile = /\.(js|ts|mjs|mts|jsx|tsx)$/.test(specifier);
-      if (!isNpm && !isJsTsFile) {
+      if (!isNpm && !isUrl && !isJsTsFile) {
         writeResponse(conn, {
           ok: false,
           error: `Only JS/TS files and npm: specifiers are supported. Got: ${specifier}`,
@@ -452,12 +453,21 @@ async function handleCommand(cmd, conn): Promise<string | void> {
         return;
       }
 
+      // Resolve the specifier to a proper URL for the worker module loader.
+      let resolvedSpecifier = specifier;
+      if (!specifier.startsWith("npm:") && !specifier.startsWith("http") && !specifier.startsWith("file://")) {
+        // Resolve relative/absolute file paths to file:// URLs
+        const path = specifier.startsWith("/") ? specifier : `${cwd}/${specifier}`;
+        resolvedSpecifier = new URL(`file://${path}`).href;
+      }
+
       // Create an in-process container with PTY slave as stdio.
-      // The worker's Deno.stdin/stdout/stderr will be the PTY slave,
-      // so isatty()=true and programs get full terminal support.
+      // Using execSpecifier mode: the worker loads the module directly
+      // as its main module. No bootstrap code - stdio goes through PTY.
       const c = Deno.container({
         name: specifier,
         ptyPath: pty.slavePath,
+        execSpecifier: resolvedSpecifier,
       });
 
       const id = nextId++;
@@ -482,10 +492,16 @@ async function handleCommand(cmd, conn): Promise<string | void> {
       // Set PTY master to non-blocking
       setNonBlocking(pty.masterFd);
 
-      // Tell the exec bootstrap to import the module.
-      const execPromise = c.execModule(specifier).catch((e: Error) => {
-        const msg = `\r\nContainer error: ${e.message}\r\n`;
-        writeFd(pty.masterFd, new TextEncoder().encode(msg));
+      // The module runs as the worker's main module. We wait for
+      // the worker to exit by polling its control channel.
+      const execPromise = new Promise<void>((resolve) => {
+        const poll = async () => {
+          while (!c.closed) {
+            await new Promise((r) => setTimeout(r, 100));
+          }
+          resolve();
+        };
+        poll();
       });
 
       // PTY master ↔ socket streaming as background task.
