@@ -2,7 +2,7 @@
 // Hosts all container isolates in a single process.
 // CLI clients connect via Unix domain socket to create/eval/kill containers.
 
-import { openPty, setWinSize, closeFd, readFd, writeFd, setNonBlocking } from "./container_pty.ts";
+// No PTY FFI needed — we use `script` for PTY allocation
 
 // Use the OS temp dir to match the Rust client's std::env::temp_dir()
 function getTempDir(): string {
@@ -369,7 +369,6 @@ async function handleCommand(cmd, conn): Promise<string | void> {
       if (record.intervalHandle) clearInterval(record.intervalHandle);
       if (record.container) record.container.close();
       if (record.process) record.process.kill("SIGTERM");
-      if (record.ptyFd) closeFd(record.ptyFd);
       containers.delete(cmd.id);
       writeResponse(conn, { ok: true });
       return;
@@ -381,18 +380,17 @@ async function handleCommand(cmd, conn): Promise<string | void> {
         if (record.intervalHandle) clearInterval(record.intervalHandle);
         if (record.container) record.container.close();
         if (record.process) record.process.kill("SIGTERM");
-        if (record.ptyFd) closeFd(record.ptyFd);
-        containers.delete(cmd.id);
+          containers.delete(cmd.id);
       }
       writeResponse(conn, { ok: true });
       return;
     }
 
     case "exec": {
-      // Run a JS/TS/npm program as a child process of the daemon with a real PTY.
+      // Run a JS/TS/npm program as a child process of the daemon with a PTY.
+      // Uses `script` command to allocate a real PTY — it handles all the
+      // pty master/slave setup that's hard to do from userspace.
       // After the JSON response, the connection switches to raw binary I/O.
-      const rows = cmd.rows || 24;
-      const cols = cmd.cols || 80;
       const args: string[] = cmd.args || [];
       const cwd = cmd.cwd || Deno.cwd();
       const env: Record<string, string> = cmd.env || {};
@@ -414,30 +412,26 @@ async function handleCommand(cmd, conn): Promise<string | void> {
         return;
       }
 
-      let pty: { masterFd: number; slavePath: string };
-      try {
-        pty = openPty(rows, cols);
-      } catch (e) {
-        writeResponse(conn, { ok: false, error: `PTY allocation failed: ${e.message}` });
-        return;
-      }
-
-      // Build the deno run command
       const denoExe = Deno.execPath();
       const denoArgs = ["run", "-A", specifier, ...args.slice(1)];
 
-      // Spawn as a child of the daemon using a shell to redirect stdio
-      // to the PTY slave device. The shell `exec` replaces itself with
-      // the deno process so there's no extra shell process.
-      const shellScript = [
-        denoExe, ...denoArgs,
-      ].map(a => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
+      // Use `script` to allocate a PTY and run the program inside it.
+      // `script -q /dev/null` (macOS) or `script -qc "cmd" /dev/null` (Linux)
+      // gives us a real PTY with stdin/stdout piped through.
+      let scriptArgs: string[];
+      if (Deno.build.os === "darwin") {
+        // macOS: script -q /dev/null command args...
+        scriptArgs = ["-q", "/dev/null", denoExe, ...denoArgs];
+      } else {
+        // Linux: script -qc "command args..." /dev/null
+        const cmdStr = [denoExe, ...denoArgs]
+          .map(a => `'${a.replace(/'/g, "'\\''")}'`)
+          .join(" ");
+        scriptArgs = ["-qc", cmdStr, "/dev/null"];
+      }
 
-      const child = new Deno.Command("sh", {
-        args: [
-          "-c",
-          `exec < '${pty.slavePath}' > '${pty.slavePath}' 2>&1; exec ${shellScript}`,
-        ],
+      const child = new Deno.Command("script", {
+        args: scriptArgs,
         cwd,
         env: {
           ...Deno.env.toObject(),
@@ -449,9 +443,6 @@ async function handleCommand(cmd, conn): Promise<string | void> {
         stdout: "piped",
         stderr: "piped",
       }).spawn();
-
-      // Close the piped handles — we don't use them, stdio goes via PTY
-      try { child.stdin.close(); } catch { /* */ }
 
       // Register as a container
       const id = nextId++;
@@ -468,36 +459,25 @@ async function handleCommand(cmd, conn): Promise<string | void> {
         logs: [],
         logNextFrom: 0,
         process: child,
-        ptyFd: pty.masterFd,
       };
       containers.set(id, record);
 
       // Send success response. After this, connection is raw binary I/O.
       writeResponse(conn, { ok: true, id, mode: "pty" });
 
-      // Set PTY master to non-blocking for async-friendly reads
-      setNonBlocking(pty.masterFd);
-
-      // Launch PTY streaming as background task.
-      // Returns "exec_takeover" so handleConnection stops and we own the conn.
+      // Launch I/O streaming as background task.
       (async () => {
-        const buf = new Uint8Array(16384);
         let alive = true;
+        const stdout = child.stdout.getReader();
+        const stdin = child.stdin.getWriter();
 
-        // PTY master → socket
+        // child stdout → socket
         const readLoop = (async () => {
           while (alive) {
             try {
-              const n = readFd(pty.masterFd, buf);
-              if (n > 0) {
-                await conn.write(buf.subarray(0, n));
-              } else if (n === 0) {
-                alive = false;
-                break;
-              } else {
-                // EAGAIN — yield to event loop
-                await new Promise((r) => setTimeout(r, 5));
-              }
+              const { done, value } = await stdout.read();
+              if (done) { alive = false; break; }
+              await conn.write(value);
             } catch {
               alive = false;
               break;
@@ -505,29 +485,14 @@ async function handleCommand(cmd, conn): Promise<string | void> {
           }
         })();
 
-        // Socket → PTY master
+        // socket → child stdin
         const writeLoop = (async () => {
           const sbuf = new Uint8Array(16384);
           while (alive) {
             try {
               const n = await conn.read(sbuf);
-              if (n === null) {
-                alive = false;
-                break;
-              }
-              const data = sbuf.subarray(0, n);
-              // Check for resize escape: \x1b[8;<rows>;<cols>t
-              const str = new TextDecoder().decode(data);
-              const resizeMatch = str.match(/\x1b\[8;(\d+);(\d+)t/);
-              if (resizeMatch) {
-                setWinSize(pty.masterFd, Number(resizeMatch[1]), Number(resizeMatch[2]));
-                const cleaned = new TextEncoder().encode(
-                  str.replace(/\x1b\[8;\d+;\d+t/g, ""),
-                );
-                if (cleaned.length > 0) writeFd(pty.masterFd, cleaned);
-              } else {
-                writeFd(pty.masterFd, data);
-              }
+              if (n === null) { alive = false; break; }
+              await stdin.write(sbuf.slice(0, n));
             } catch {
               alive = false;
               break;
@@ -539,17 +504,6 @@ async function handleCommand(cmd, conn): Promise<string | void> {
         await child.status;
         alive = false;
 
-        // Drain remaining PTY output
-        await new Promise((r) => setTimeout(r, 100));
-        try {
-          while (true) {
-            const n = readFd(pty.masterFd, buf);
-            if (n <= 0) break;
-            await conn.write(buf.subarray(0, n));
-          }
-        } catch { /* */ }
-
-        closeFd(pty.masterFd);
         containers.delete(id);
         try { conn.close(); } catch { /* */ }
       })();
