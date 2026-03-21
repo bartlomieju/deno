@@ -660,7 +660,8 @@ impl CliFactory {
             | DenoSubcommand::Vendor
             | DenoSubcommand::Publish { .. }
             | DenoSubcommand::Help { .. }
-            | DenoSubcommand::X { .. } => false,
+            | DenoSubcommand::X { .. }
+            | DenoSubcommand::Container { .. } => false,
           },
           cache_setting: NpmCacheSetting::from_cache_setting(
             &cli_options.cache_setting(),

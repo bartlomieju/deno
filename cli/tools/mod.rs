@@ -5,6 +5,7 @@ pub mod bundle;
 pub mod check;
 pub mod clean;
 pub mod compile;
+pub mod container;
 pub mod coverage;
 pub mod deploy;
 pub mod doc;

@@ -159,6 +159,9 @@ async fn run_subcommand(
     DenoSubcommand::Doc(doc_flags) => spawn_subcommand(async {
       tools::doc::doc(Arc::new(flags), doc_flags).await
     }),
+    DenoSubcommand::Container(container_flags) => spawn_subcommand(async {
+      tools::container::container_command(Arc::new(flags), container_flags).await
+    }),
     DenoSubcommand::Eval(eval_flags) => spawn_subcommand(async {
       tools::run::eval_command(Arc::new(flags), eval_flags).await
     }),

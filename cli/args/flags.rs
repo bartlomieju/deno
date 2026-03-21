@@ -273,6 +273,20 @@ pub struct CpuProfFlags {
 }
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
+pub struct ContainerFlags {
+  /// Script to run, or npm package name
+  pub script: Option<String>,
+  /// Code to eval (--eval flag)
+  pub eval_code: Option<String>,
+  /// Memory limit (e.g., "64m", "1g")
+  pub memory_limit: Option<String>,
+  /// CPU timeout (e.g., "5s", "30s")
+  pub cpu_timeout: Option<String>,
+  /// Whether nesting is allowed
+  pub no_nest: bool,
+}
+
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct EvalFlags {
   pub print: bool,
   pub code: String,
@@ -627,6 +641,7 @@ pub enum DenoSubcommand {
   Coverage(CoverageFlags),
   Deploy(DeployFlags),
   Doc(DocFlags),
+  Container(ContainerFlags),
   Eval(EvalFlags),
   Fmt(FmtFlags),
   Init(InitFlags),
@@ -1880,6 +1895,7 @@ pub fn flags_from_vec_with_initial_cwd(
         "cache" => cache_parse(&mut flags, &mut m)?,
         "check" => check_parse(&mut flags, &mut m)?,
         "clean" => clean_parse(&mut flags, &mut m),
+        "container" => container_parse(&mut flags, &mut m)?,
         "compile" => compile_parse(&mut flags, &mut m)?,
         "create" => create_parse(&mut flags, &mut m)?,
         "completions" => completions_parse(&mut flags, &mut m, app),
@@ -2148,6 +2164,7 @@ pub fn clap_root() -> Command {
         .subcommand(check_subcommand())
         .subcommand(clean_subcommand())
         .subcommand(compile_subcommand())
+        .subcommand(container_subcommand())
         .subcommand(create_subcommand())
         .subcommand(completions_subcommand())
         .subcommand(coverage_subcommand())
@@ -2964,6 +2981,107 @@ fn deploy_subcommand() -> Command {
       .trailing_var_arg(true)
       .allow_hyphen_values(true),
   )
+}
+
+fn container_subcommand() -> Command {
+  command(
+    "container",
+    cstr!(
+      "Run code in an isolated container.
+
+Run a script in a container:
+    <p(245)>deno container script.ts</>
+
+Run an npm package in a container:
+    <p(245)>deno container npm:cowsay</>
+
+Evaluate code in a container:
+    <p(245)>deno container --eval \"console.log('hello')\"</>
+
+With resource limits:
+    <p(245)>deno container --memory=64m --timeout=5s script.ts</>"
+    ),
+    UnstableArgsConfig::None,
+  )
+  .defer(|cmd| {
+    cmd
+      .arg(
+        Arg::new("script")
+          .num_args(0..)
+          .action(ArgAction::Append)
+          .value_name("SCRIPT_ARG")
+          .trailing_var_arg(true)
+          .allow_hyphen_values(true),
+      )
+      .arg(
+        Arg::new("eval")
+          .long("eval")
+          .short('e')
+          .help("Evaluate the given code in the container")
+          .value_name("CODE"),
+      )
+      .arg(
+        Arg::new("memory")
+          .long("memory")
+          .help("Memory limit for the container (e.g., 64m, 1g)")
+          .value_name("LIMIT"),
+      )
+      .arg(
+        Arg::new("timeout")
+          .long("timeout")
+          .help("CPU timeout for the container (e.g., 5s, 30s)")
+          .value_name("DURATION"),
+      )
+      .arg(
+        Arg::new("no-nest")
+          .long("no-nest")
+          .help("Disable nesting (container cannot spawn sub-containers)")
+          .action(ArgAction::SetTrue),
+      )
+      .arg(
+        Arg::new("allow-read")
+          .long("allow-read")
+          .help("Allow file system read access")
+          .num_args(0..)
+          .use_value_delimiter(true)
+          .require_equals(true)
+          .value_name("PATH"),
+      )
+      .arg(
+        Arg::new("allow-write")
+          .long("allow-write")
+          .help("Allow file system write access")
+          .num_args(0..)
+          .use_value_delimiter(true)
+          .require_equals(true)
+          .value_name("PATH"),
+      )
+      .arg(
+        Arg::new("allow-net")
+          .long("allow-net")
+          .help("Allow network access")
+          .num_args(0..)
+          .use_value_delimiter(true)
+          .require_equals(true)
+          .value_name("HOST"),
+      )
+      .arg(
+        Arg::new("allow-run")
+          .long("allow-run")
+          .help("Allow running subprocesses")
+          .num_args(0..)
+          .use_value_delimiter(true)
+          .require_equals(true)
+          .value_name("PROGRAM"),
+      )
+      .arg(
+        Arg::new("allow-all")
+          .short('A')
+          .long("allow-all")
+          .help("Allow all permissions")
+          .action(ArgAction::SetTrue),
+      )
+  })
 }
 
 fn sandbox_subcommand() -> Command {
@@ -6456,6 +6574,33 @@ fn doc_parse(
     html,
     filter,
     private,
+  });
+  Ok(())
+}
+
+fn container_parse(
+  flags: &mut Flags,
+  matches: &mut ArgMatches,
+) -> clap::error::Result<()> {
+  // The host process needs all permissions - the container itself
+  // will enforce scoped permissions via Deno.container() options.
+  flags.allow_all();
+
+  let script = matches
+    .remove_many::<String>("script")
+    .map(|mut args| args.next())
+    .flatten();
+  let eval_code = matches.remove_one::<String>("eval");
+  let memory_limit = matches.remove_one::<String>("memory");
+  let cpu_timeout = matches.remove_one::<String>("timeout");
+  let no_nest = matches.get_flag("no-nest");
+
+  flags.subcommand = DenoSubcommand::Container(ContainerFlags {
+    script,
+    eval_code,
+    memory_limit,
+    cpu_timeout,
+    no_nest,
   });
   Ok(())
 }
