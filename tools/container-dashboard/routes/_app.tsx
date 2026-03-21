@@ -36,6 +36,19 @@ export default function App({ Component }: PageProps) {
             border-radius: 10px;
             font-weight: 500;
           }
+          .header .btn-spawn {
+            background: #1a3a2a;
+            border: 1px solid #2a5a3a;
+            color: #4ade80;
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-family: inherit;
+            font-weight: 600;
+            transition: all 0.15s;
+          }
+          .header .btn-spawn:hover { background: #2a4a3a; }
           .header .pid {
             margin-left: auto;
             color: #666;
@@ -152,6 +165,85 @@ export default function App({ Component }: PageProps) {
             color: #fff;
             margin-top: 4px;
           }
+          .spawn-panel {
+            background: #111;
+            border: 1px solid #222;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+          }
+          .spawn-row {
+            display: flex;
+            gap: 20px;
+          }
+          .spawn-editor {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+          }
+          .spawn-options {
+            width: 220px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+          }
+          .spawn-label {
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+            display: block;
+          }
+          .code-input {
+            flex: 1;
+            background: #0a0a0a;
+            border: 1px solid #222;
+            border-radius: 6px;
+            color: #e0e0e0;
+            font-family: 'SF Mono', 'Menlo', monospace;
+            font-size: 13px;
+            padding: 12px;
+            resize: vertical;
+            min-height: 120px;
+            outline: none;
+          }
+          .code-input:focus { border-color: #444; }
+          .spawn-input {
+            background: #0a0a0a;
+            border: 1px solid #222;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-family: inherit;
+            font-size: 12px;
+            padding: 6px 10px;
+            width: 100%;
+            outline: none;
+          }
+          .spawn-input:focus { border-color: #444; }
+          .spawn-input::placeholder { color: #444; }
+          .spawn-field { display: flex; flex-direction: column; }
+          .btn-go {
+            background: #4ade80;
+            border: none;
+            color: #000;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-family: inherit;
+            font-weight: 700;
+            margin-top: 4px;
+            transition: all 0.15s;
+          }
+          .btn-go:hover { background: #22c55e; }
+          .btn-go:disabled { background: #333; color: #666; cursor: not-allowed; }
+          .spawn-result {
+            font-size: 12px;
+            padding: 4px 0;
+          }
+          .spawn-ok { color: #4ade80; }
+          .spawn-error { color: #f87171; }
         `}</style>
       </head>
       <body>

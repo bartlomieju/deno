@@ -41,6 +41,16 @@ export default function Dashboard() {
   const [logFrom, setLogFrom] = useState(0);
   const logRef = useRef<HTMLDivElement>(null);
 
+  // Spawn form state
+  const [showSpawn, setShowSpawn] = useState(false);
+  const [spawnCode, setSpawnCode] = useState("console.log('Hello from container!');");
+  const [spawnName, setSpawnName] = useState("");
+  const [spawnMemory, setSpawnMemory] = useState("");
+  const [spawnTimeout, setSpawnTimeout] = useState("");
+  const [spawnCron, setSpawnCron] = useState("");
+  const [spawning, setSpawning] = useState(false);
+  const [spawnResult, setSpawnResult] = useState<string | null>(null);
+
   // Poll containers every 2s
   useEffect(() => {
     const poll = async () => {
@@ -71,7 +81,6 @@ export default function Dashboard() {
           setLogs((prev) => [...prev, ...data.logs]);
           from = data.total;
           setLogFrom(data.total);
-          // Auto-scroll
           setTimeout(() => {
             if (logRef.current) {
               logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -93,6 +102,36 @@ export default function Dashboard() {
     }
   };
 
+  const handleSpawn = async () => {
+    setSpawning(true);
+    setSpawnResult(null);
+    try {
+      const body: Record<string, string> = { code: spawnCode };
+      if (spawnName.trim()) body.name = spawnName.trim();
+      if (spawnMemory.trim()) body.memoryLimit = spawnMemory.trim();
+      if (spawnTimeout.trim()) body.cpuTimeout = spawnTimeout.trim();
+      if (spawnCron.trim()) body.cron = spawnCron.trim();
+
+      const resp = await fetch("/api/containers/spawn", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        setSpawnResult(`Container ${data.id} created`);
+        setSelectedId(data.id);
+        // Reset form after short delay
+        setTimeout(() => setSpawnResult(null), 3000);
+      } else {
+        setSpawnResult(`Error: ${data.error}`);
+      }
+    } catch (e) {
+      setSpawnResult(`Error: ${(e as Error).message}`);
+    }
+    setSpawning(false);
+  };
+
   const totalReqs = containers.reduce((s, c) => s + c.requestCount, 0);
   const totalErrs = containers.reduce((s, c) => s + c.errorCount, 0);
   const cronCount = containers.filter((c) => c.containerType === "cron").length;
@@ -102,9 +141,88 @@ export default function Dashboard() {
       <div class="header">
         <h1>Deno Containers</h1>
         <span class="badge">{containers.length > 0 ? "LIVE" : "IDLE"}</span>
+        <button
+          class="btn btn-spawn"
+          onClick={() => setShowSpawn(!showSpawn)}
+        >
+          {showSpawn ? "- Close" : "+ New Container"}
+        </button>
         <span class="pid">daemon pid: {daemonPid}</span>
       </div>
       <div class="content">
+        {/* Spawn form */}
+        {showSpawn && (
+          <div class="spawn-panel">
+            <div class="spawn-row">
+              <div class="spawn-editor">
+                <label class="spawn-label">Code</label>
+                <textarea
+                  class="code-input"
+                  value={spawnCode}
+                  onInput={(e) => setSpawnCode((e.target as HTMLTextAreaElement).value)}
+                  rows={6}
+                  placeholder="console.log('hello');"
+                  spellcheck={false}
+                />
+              </div>
+              <div class="spawn-options">
+                <div class="spawn-field">
+                  <label class="spawn-label">Name</label>
+                  <input
+                    type="text"
+                    class="spawn-input"
+                    value={spawnName}
+                    onInput={(e) => setSpawnName((e.target as HTMLInputElement).value)}
+                    placeholder="my-container"
+                  />
+                </div>
+                <div class="spawn-field">
+                  <label class="spawn-label">Memory limit</label>
+                  <input
+                    type="text"
+                    class="spawn-input"
+                    value={spawnMemory}
+                    onInput={(e) => setSpawnMemory((e.target as HTMLInputElement).value)}
+                    placeholder="64m"
+                  />
+                </div>
+                <div class="spawn-field">
+                  <label class="spawn-label">CPU timeout</label>
+                  <input
+                    type="text"
+                    class="spawn-input"
+                    value={spawnTimeout}
+                    onInput={(e) => setSpawnTimeout((e.target as HTMLInputElement).value)}
+                    placeholder="5s"
+                  />
+                </div>
+                <div class="spawn-field">
+                  <label class="spawn-label">Cron schedule</label>
+                  <input
+                    type="text"
+                    class="spawn-input"
+                    value={spawnCron}
+                    onInput={(e) => setSpawnCron((e.target as HTMLInputElement).value)}
+                    placeholder="@every_5s, @hourly, */5 * * * *"
+                  />
+                </div>
+                <button
+                  class="btn btn-go"
+                  onClick={handleSpawn}
+                  disabled={spawning || !spawnCode.trim()}
+                >
+                  {spawning ? "Spawning..." : "Spawn"}
+                </button>
+                {spawnResult && (
+                  <div class={`spawn-result ${spawnResult.startsWith("Error") ? "spawn-error" : "spawn-ok"}`}>
+                    {spawnResult}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div class="stats-row">
           <div class="stat-card">
             <div class="label">Containers</div>
@@ -124,12 +242,12 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {containers.length === 0 ? (
+        {containers.length === 0 && !showSpawn ? (
           <div class="empty">
             <p style="font-size:24px">No containers running</p>
-            <p>Start one with: deno container -d --eval "console.log('hello')"</p>
+            <p>Click "+ New Container" above or run: deno container -d --eval "console.log('hello')"</p>
           </div>
-        ) : (
+        ) : containers.length > 0 ? (
           <table>
             <thead>
               <tr>
@@ -170,7 +288,7 @@ export default function Dashboard() {
               ))}
             </tbody>
           </table>
-        )}
+        ) : null}
 
         {selectedId !== null && (
           <div class="log-panel">

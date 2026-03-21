@@ -7,6 +7,7 @@ import * as $index from "./routes/index.tsx";
 import * as $api_containers_index from "./routes/api/containers/index.ts";
 import * as $api_containers_id_logs from "./routes/api/containers/[id]/logs.ts";
 import * as $api_containers_id_kill from "./routes/api/containers/[id]/kill.ts";
+import * as $api_containers_spawn from "./routes/api/containers/spawn.ts";
 import * as $Dashboard from "./islands/Dashboard.tsx";
 import { type Manifest } from "$fresh/server.ts";
 
@@ -17,6 +18,7 @@ const manifest = {
     "./routes/api/containers/index.ts": $api_containers_index,
     "./routes/api/containers/[id]/logs.ts": $api_containers_id_logs,
     "./routes/api/containers/[id]/kill.ts": $api_containers_id_kill,
+    "./routes/api/containers/spawn.ts": $api_containers_spawn,
   },
   islands: {
     "./islands/Dashboard.tsx": $Dashboard,

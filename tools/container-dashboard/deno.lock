@@ -32,6 +32,9 @@
       ]
     }
   },
+  "redirects": {
+    "https://esm.sh/@types/babel__helper-validator-identifier@~7.15.2/index.d.ts": "https://esm.sh/@types/babel__helper-validator-identifier@7.15.2/index.d.ts"
+  },
   "remote": {
     "https://deno.land/std@0.216.0/assert/_constants.ts": "a271e8ef5a573f1df8e822a6eb9d09df064ad66a4390f21b3e31f820a38e0975",
     "https://deno.land/std@0.216.0/assert/_diff.ts": "dcc63d94ca289aec80644030cf88ccbf7acaa6fbd7b0f22add93616b36593840",
@@ -76,6 +79,7 @@
     "https://deno.land/std@0.216.0/fs/walk.ts": "78e1d01a9f75715614bf8d6e58bd77d9fafb1222c41194e607cd3849d7a0e771",
     "https://deno.land/std@0.216.0/http/server.ts": "6dce295abc169d0956ae00432441331b3425afad4d79e8b3475739be2f04d614",
     "https://deno.land/std@0.216.0/http/status.ts": "ed61b4882af2514a81aefd3245e8df4c47b9a8e54929a903577643d2d1ebf514",
+    "https://deno.land/std@0.216.0/json/common.ts": "33f1a4f39a45e2f9f357823fd0b5cf88b63fb4784b8c9a28f8120f70a20b23e9",
     "https://deno.land/std@0.216.0/jsonc/mod.ts": "82722888823e1af5a8f7918bf810ea581f68081064d529218533acad6cb7c2bc",
     "https://deno.land/std@0.216.0/jsonc/parse.ts": "747a0753289fdbfcb9cb86b709b56348c98abc107fbb0a7f350b87af4425a76a",
     "https://deno.land/std@0.216.0/media_types/_db.ts": "1d695d9fe1c785e523d6de7191b33f33ecc7866db77358a4f966221cca56e2f9",
@@ -181,7 +185,11 @@
     "https://deno.land/x/fresh@1.7.3/src/runtime/build_id.ts": "8376e70e42ce456dfa6932c638409d2ef1bca4833b4ceba0bf74510080a7f976",
     "https://deno.land/x/fresh@1.7.3/src/runtime/csp.ts": "9ee900e9b0b786057b1009da5976298c202d1b86d1f1e4d2510bde5f06530ac9",
     "https://deno.land/x/fresh@1.7.3/src/runtime/deserializer.ts": "1b83e75fa61c48b074ea121f33647d1ed15c68fa2f2a11b0a7f7a12cd38af627",
+    "https://deno.land/x/fresh@1.7.3/src/runtime/entrypoints/deserializer.ts": "e836f44c454e1f67c86eab30f108eb9be05a38489604a24e418b564b77058b96",
+    "https://deno.land/x/fresh@1.7.3/src/runtime/entrypoints/main.ts": "99e9882a376176b017059a8cda05e4f74caf3ea8c18e45a017c8562a50807c77",
+    "https://deno.land/x/fresh@1.7.3/src/runtime/entrypoints/signals.ts": "782c81f97d125ad4f92aa0160dad3a2e8b6ea7a61cec7fdab87bbbbd8c0d215c",
     "https://deno.land/x/fresh@1.7.3/src/runtime/head.ts": "0f9932874497ab6e57ed1ba01d549e843523df4a5d36ef97460e7a43e3132fdc",
+    "https://deno.land/x/fresh@1.7.3/src/runtime/polyfills.ts": "c3de932b2f23df9a4ade1ab4f8890730c0db0a71bf85faa41742a1763631e917",
     "https://deno.land/x/fresh@1.7.3/src/runtime/utils.ts": "4f40630c308e8ea7d53860687905caf1a2f2a46ad8692f24e905a8e996b584c3",
     "https://deno.land/x/fresh@1.7.3/src/server/boot.ts": "3a574c4baa6120f6770f419af6d8d6d5ae32c8e1bdddf2bb14cb258ba18ac62f",
     "https://deno.land/x/fresh@1.7.3/src/server/build_id.ts": "82d9cb985de6b1e38c3108e5a00667b16e80eedc145d73835d6b44349ebe6389",
@@ -208,6 +216,10 @@
     "https://deno.land/x/fresh@1.7.3/src/server/tailwind_aot_error_page.tsx": "7265b66dc76a2e54b40774bbeb3cc7d4deb2eac537e08712e90e9c7b9399e53a",
     "https://deno.land/x/fresh@1.7.3/src/server/types.ts": "cf4943a6d3e7df100aed20f243c0464cebb6af657749f742bd2c13e78c40dff2",
     "https://deno.land/x/fresh@1.7.3/src/types.ts": "05169e3389979d8283de0ec1db3a765324ffd730b6af29ffe02752f341ae7d35",
+    "https://esm.sh/*@preact/signals-core@1.8.0": "d64716db8da7c4080d0df2aff25f5d01cd3120c66656c6fa747524ca7bd04e11",
+    "https://esm.sh/*@preact/signals-core@1.8.0/denonext/signals-core.mjs": "35f8624f983ba148f83c919a15541c7714cabf14b758bcb45ac25708aeb675f5",
+    "https://esm.sh/*@preact/signals@1.3.0": "85e073e35a54a4c1b802eb71a383644a21d69ad338128d34f045ec00aed7838a",
+    "https://esm.sh/*@preact/signals@1.3.0/denonext/signals.mjs": "fbad5e6cde4c4610bce12504b5ae4e4f4e54ee52633c1a10c09ba003a712670c",
     "https://esm.sh/*preact-render-to-string@6.3.1": "37f046906d7cc1ce35828a029a05a4eed6c8eefc4b646a301939757dfbf8ab18",
     "https://esm.sh/*preact-render-to-string@6.3.1/denonext/preact-render-to-string.mjs": "859e9f3dc137a53c17542bbed4cf8accdca81a2895d7a52d1fca38e6c5c00c90",
     "https://esm.sh/@babel/helper-validator-identifier@7.22.20": "3b0b7d94b8ac689175ecb7e72183b07c6a771cc7680a7c9916091add73bd7f88",
