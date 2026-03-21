@@ -1253,26 +1253,35 @@ internals.__bootstrapNodeProcess = function (
 
     enableNextTick();
 
-    // Replace warmup stdout/stderr with proper streams
+    // Replace warmup stdout/stderr with proper streams.
+    // The TTYWriteStream constructor may fail with EINVAL if the process's
+    // fd 1 differs from the worker's custom Stdio (e.g. in container
+    // workers where Stdio points to a PTY slave but fd 1 is /dev/null).
+    // In that case, fall back to a regular writable stream.
     if (io.stdout.isTerminal()) {
       /** https://nodejs.org/api/process.html#process_process_stdout */
-      stdout = process.stdout = new TTYWriteStream(1);
-      // Match Node.js: stdio streams are indestructible.
-      // Libraries like mute-stream (@inquirer/prompts) call destroy()/end()
-      // on process.stdout between prompts. Without this, the underlying TTY
-      // handle is closed, breaking subsequent I/O.
-      // _isStdio also prevents Stream.pipe() from calling end() on stdout
-      // when a piped source stream ends.
-      // Ref: https://github.com/nodejs/node/blob/main/lib/internal/bootstrap/switches/is_main_thread.js
-      stdout._isStdio = true;
-      stdout.destroySoon = stdout.destroy;
-      stdout._destroy = function (err, cb) {
-        cb(err);
-        this._undestroy();
-        if (!this._writableState.emitClose) {
-          nextTick(() => this.emit("close"));
-        }
-      };
+      try {
+        stdout = process.stdout = new TTYWriteStream(1);
+      } catch {
+        // fd 1 is not a TTY (e.g. worker with custom PTY stdio).
+        // Fall back to non-TTY stream wrapping Deno.stdout.
+        stdout = process.stdout = createWritableStdioStream(
+          io.stdout,
+          "stdout",
+        );
+      }
+      if (stdout instanceof TTYWriteStream) {
+        // Match Node.js: stdio streams are indestructible.
+        stdout._isStdio = true;
+        stdout.destroySoon = stdout.destroy;
+        stdout._destroy = function (err, cb) {
+          cb(err);
+          this._undestroy();
+          if (!this._writableState.emitClose) {
+            nextTick(() => this.emit("close"));
+          }
+        };
+      }
     } else {
       stdout = process.stdout = createWritableStdioStream(
         io.stdout,
@@ -1282,16 +1291,25 @@ internals.__bootstrapNodeProcess = function (
 
     if (io.stderr.isTerminal()) {
       /** https://nodejs.org/api/process.html#process_process_stderr */
-      stderr = process.stderr = new TTYWriteStream(2);
-      stderr._isStdio = true;
-      stderr.destroySoon = stderr.destroy;
-      stderr._destroy = function (err, cb) {
-        cb(err);
-        this._undestroy();
-        if (!this._writableState.emitClose) {
-          nextTick(() => this.emit("close"));
-        }
-      };
+      try {
+        stderr = process.stderr = new TTYWriteStream(2);
+      } catch {
+        stderr = process.stderr = createWritableStdioStream(
+          io.stderr,
+          "stderr",
+        );
+      }
+      if (stderr instanceof TTYWriteStream) {
+        stderr._isStdio = true;
+        stderr.destroySoon = stderr.destroy;
+        stderr._destroy = function (err, cb) {
+          cb(err);
+          this._undestroy();
+          if (!this._writableState.emitClose) {
+            nextTick(() => this.emit("close"));
+          }
+        };
+      }
     } else {
       stderr = process.stderr = createWritableStdioStream(
         io.stderr,

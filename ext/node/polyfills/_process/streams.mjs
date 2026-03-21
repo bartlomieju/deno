@@ -241,7 +241,18 @@ export const initStdin = (warmup = false) => {
       if (warmup) {
         return null;
       }
-      stdin = new readStream(fd);
+      try {
+        stdin = new readStream(fd);
+      } catch {
+        // uv_tty_init may fail if the OS fd doesn't match the resource
+        // (e.g. container worker with PTY stdio but process fd 0 is /dev/null).
+        // Fall back to a readable stream backed by Deno.stdin.
+        stdin = new Readable({
+          highWaterMark: 64 * 1024,
+          autoDestroy: false,
+          read: _read,
+        });
+      }
       break;
     }
     case "PIPE":

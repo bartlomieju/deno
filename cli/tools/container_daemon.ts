@@ -482,9 +482,6 @@ async function handleCommand(cmd, conn): Promise<string | void> {
       // Set PTY master to non-blocking
       setNonBlocking(pty.masterFd);
 
-      // Debug: write to PTY master to verify I/O path works
-      writeFd(pty.masterFd, new TextEncoder().encode("DEBUG: PTY connected, launching module...\r\n"));
-
       // Tell the exec bootstrap to import the module.
       const execPromise = c.execModule(specifier).catch((e: Error) => {
         const msg = `\r\nContainer error: ${e.message}\r\n`;
