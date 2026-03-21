@@ -455,7 +455,59 @@ async function handleCommand(cmd, conn): Promise<string | void> {
 
       // Resolve the specifier to a proper URL for the worker module loader.
       let resolvedSpecifier = specifier;
-      if (!specifier.startsWith("npm:") && !specifier.startsWith("http") && !specifier.startsWith("file://")) {
+      if (specifier.startsWith("npm:")) {
+        // For npm packages, resolve the bin entry since import() can't
+        // handle packages that only have bin (no main/exports).
+        // Use `deno info --json` to find the package folder, then read
+        // package.json to find the bin entry.
+        try {
+          const infoCmd = new Deno.Command(Deno.execPath(), {
+            args: ["info", "--json", specifier],
+            stdout: "piped",
+            stderr: "null",
+          });
+          const infoOut = await infoCmd.output();
+          const info = JSON.parse(new TextDecoder().decode(infoOut.stdout));
+
+          // Find the npm package folder from the npmPackages map
+          // Strip npm: prefix and optional version constraint
+          const pkgName = specifier.replace(/^npm:/, "").replace(/@[^/@]*$/, "");
+          let pkgFolder = "";
+          for (const [id, pkg] of Object.entries(info.npmPackages || {}) as any) {
+            // id is like "@anthropic-ai/claude-code@2.1.81"
+            // pkgName is like "@anthropic-ai/claude-code"
+            const idName = id.substring(0, id.lastIndexOf("@"));
+            if (idName === pkgName || id.startsWith(pkgName + "@")) {
+              // Cache layout: <host>/<name>/<version>/
+              // id format: "@scope/name@version" -> "@scope/name/version"
+              const lastAt = id.lastIndexOf("@");
+              const name = id.substring(0, lastAt);
+              const version = id.substring(lastAt + 1);
+              const host = pkg.registryUrl ? new URL(pkg.registryUrl).host : "registry.npmjs.org";
+              pkgFolder = `${Deno.env.get("HOME")}/Library/Caches/deno/npm/${host}/${name}/${version}`;
+              break;
+            }
+          }
+
+          if (pkgFolder) {
+            // Read package.json to find bin entry
+            const pkgJsonPath = `${pkgFolder}/package.json`;
+            try {
+              const pkgJson = JSON.parse(await Deno.readTextFile(pkgJsonPath));
+              let binFile = "";
+              if (typeof pkgJson.bin === "string") {
+                binFile = pkgJson.bin;
+              } else if (typeof pkgJson.bin === "object") {
+                // Use the first bin entry
+                binFile = Object.values(pkgJson.bin)[0] as string;
+              }
+              if (binFile) {
+                resolvedSpecifier = new URL(binFile, `file://${pkgFolder}/`).href;
+              }
+            } catch { /* fall through to npm: specifier */ }
+          }
+        } catch { /* fall through to npm: specifier */ }
+      } else if (!specifier.startsWith("http") && !specifier.startsWith("file://")) {
         // Resolve relative/absolute file paths to file:// URLs
         const path = specifier.startsWith("/") ? specifier : `${cwd}/${specifier}`;
         resolvedSpecifier = new URL(`file://${path}`).href;
