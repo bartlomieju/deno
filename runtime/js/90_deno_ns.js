@@ -34,6 +34,7 @@ import * as telemetry from "ext:deno_telemetry/telemetry.ts";
 import { unstableIds } from "ext:deno_features/flags.js";
 import { loadWebGPU } from "ext:deno_webgpu/00_init.js";
 import { bundle } from "ext:deno_bundle_runtime/bundle.ts";
+import * as containerMod from "ext:runtime/98_container.js";
 
 const { ObjectDefineProperties, Float64Array } = primordials;
 
@@ -171,6 +172,8 @@ const denoNs = {
   HttpClient: httpClient.HttpClient,
   createHttpClient: httpClient.createHttpClient,
   telemetry: telemetry.telemetry,
+  container: containerMod.container,
+  Container: containerMod.Container,
 };
 
 const denoNsUnstableById = { __proto__: null };

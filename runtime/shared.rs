@@ -35,6 +35,7 @@ extension!(runtime,
     "40_tty.js",
     "41_prompt.js",
     "90_deno_ns.js",
+    "98_container.js",
     "98_global_scope_shared.js",
     "98_global_scope_window.js",
     "98_global_scope_worker.js"
