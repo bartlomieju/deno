@@ -3,6 +3,7 @@
 import { core, primordials } from "ext:core/mod.js";
 import {
   op_create_worker,
+  op_host_get_worker_cpu_usage,
   op_host_post_message,
   op_host_recv_ctrl,
   op_host_recv_message,
@@ -120,6 +121,9 @@ if (typeof Deno !== "undefined" && Deno.container) {
 
 let nextRequestId = 0;
 
+// Global container registry for `Deno.containers` listing
+const containerRegistry = new Map();
+
 class Container {
   #id;
   #status = "running"; // "running" | "closed"
@@ -128,12 +132,24 @@ class Container {
   #messagePromise;
   #cpuTimeout; // per-request timeout in ms
 
+  // Stats tracking
+  #createdAt;
+  #requestCount = 0;
+  #errorCount = 0;
+  #lastError = null;
+  #name;
+  #cpuBuffer = new Float64Array(2);
+
   constructor(options = {}) {
     const {
       permissions = null,
       resources = {},
       nest = true,
+      name = "container",
     } = options;
+
+    this.#createdAt = Date.now();
+    this.#name = name;
 
     // Parse resource limits
     const memoryLimitBytes = resources.memoryLimit
@@ -164,7 +180,7 @@ class Container {
     // Create worker with the container bootstrap code
     this.#id = op_create_worker({
       hasSourceCode: true,
-      name: "container",
+      name,
       permissions: null,
       sourceCode: bootstrapCode,
       specifier: "file:///container",
@@ -172,6 +188,9 @@ class Container {
       closeOnIdle: false,
       resourceLimits: resourceLimits || undefined,
     });
+
+    // Register in global registry
+    containerRegistry.set(this.#id, this);
 
     // Start polling for control events and messages
     this.#pollControl();
@@ -241,6 +260,8 @@ class Container {
           const err = new Error(message.error);
           if (message.name) err.name = message.name;
           if (message.stack) err.stack = message.stack;
+          this.#errorCount++;
+          this.#lastError = err.message;
           pending.reject(err);
         }
       }
@@ -252,6 +273,7 @@ class Container {
       return Promise.reject(new Error("Container is closed"));
     }
 
+    this.#requestCount++;
     const id = nextRequestId++;
     const timeout = timeoutOverride !== undefined
       ? timeoutOverride
@@ -322,8 +344,46 @@ class Container {
     return await this.#sendRequest({ type: "execFile", path: specifier }, timeout);
   }
 
+  get id() {
+    return this.#id;
+  }
+
+  get name() {
+    return this.#name;
+  }
+
+  stats() {
+    const stats = {
+      id: this.#id,
+      name: this.#name,
+      status: this.#status,
+      createdAt: this.#createdAt,
+      uptimeMs: Date.now() - this.#createdAt,
+      requestCount: this.#requestCount,
+      errorCount: this.#errorCount,
+      lastError: this.#lastError,
+      pendingRequests: this.#pendingRequests.size,
+    };
+
+    // Get CPU usage if container is still running
+    if (this.#status === "running") {
+      try {
+        op_host_get_worker_cpu_usage(this.#id, this.#cpuBuffer);
+        stats.cpuUsage = {
+          user: this.#cpuBuffer[0], // microseconds
+          system: this.#cpuBuffer[1], // microseconds
+        };
+      } catch {
+        // Worker may have just terminated
+      }
+    }
+
+    return stats;
+  }
+
   close() {
     if (this.#status === "running") {
+      containerRegistry.delete(this.#id);
       // Clear all pending timeouts
       for (const [, pending] of this.#pendingRequests) {
         if (pending.timeoutId !== undefined) {
@@ -356,4 +416,12 @@ function container(options) {
   return new Container(options);
 }
 
-export { container, Container };
+function containers() {
+  const result = [];
+  for (const [, c] of containerRegistry) {
+    result.push(c.stats());
+  }
+  return result;
+}
+
+export { container, Container, containers };

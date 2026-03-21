@@ -174,6 +174,7 @@ const denoNs = {
   telemetry: telemetry.telemetry,
   container: containerMod.container,
   Container: containerMod.Container,
+  containers: containerMod.containers,
 };
 
 const denoNsUnstableById = { __proto__: null };
