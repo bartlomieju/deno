@@ -357,28 +357,36 @@ pub async fn ps_command() -> Result<i32, AnyError> {
   // Get daemon PID
   let pid = std::fs::read_to_string(pid_path()).unwrap_or_default();
   eprintln!("Daemon PID: {}", pid.trim());
-  println!(
-    "{:<6} {:<8} {:<22} {:<22} {:<8} {:<8} {:<10}",
-    "ID", "TYPE", "NAME", "CWD", "REQS", "ERRS", "UPTIME"
-  );
 
+  // Build row data first so we can compute column widths
+  struct Row {
+    id: String,
+    typ: String,
+    name: String,
+    cwd: String,
+    reqs: String,
+    errs: String,
+    uptime: String,
+  }
+
+  let mut rows = Vec::new();
   for c in containers {
     let uptime_ms = c["uptimeMs"].as_u64().unwrap_or(0);
-    let uptime_str = if uptime_ms > 86_400_000 {
+    let uptime = if uptime_ms > 86_400_000 {
       format!(
-        "{}d{}h",
+        "{}d {}h",
         uptime_ms / 86_400_000,
         (uptime_ms % 86_400_000) / 3_600_000
       )
     } else if uptime_ms > 3_600_000 {
       format!(
-        "{}h{}m",
+        "{}h {}m",
         uptime_ms / 3_600_000,
         (uptime_ms % 3_600_000) / 60_000
       )
     } else if uptime_ms > 60_000 {
       format!(
-        "{}m{}s",
+        "{}m {}s",
         uptime_ms / 60_000,
         (uptime_ms % 60_000) / 1000
       )
@@ -388,35 +396,92 @@ pub async fn ps_command() -> Result<i32, AnyError> {
       format!("{}ms", uptime_ms)
     };
 
-    let container_type = c["containerType"]
-      .as_str()
-      .unwrap_or("run");
-
-    let cwd = c["cwd"].as_str().unwrap_or("");
-    let short_cwd = if cwd.len() > 21 {
-      format!("...{}", &cwd[cwd.len() - 18..])
+    let name_raw = c["name"].as_str().unwrap_or("?");
+    let name = if name_raw.len() > 28 {
+      format!("{}...", &name_raw[..25])
     } else {
-      cwd.to_string()
+      name_raw.to_string()
     };
 
-    let name = c["name"].as_str().unwrap_or("?");
-    let short_name = if name.len() > 21 {
-      format!("{}...", &name[..18])
+    let cwd_raw = c["cwd"].as_str().unwrap_or("");
+    let cwd = if cwd_raw.len() > 28 {
+      format!("...{}", &cwd_raw[cwd_raw.len() - 25..])
     } else {
-      name.to_string()
+      cwd_raw.to_string()
     };
 
-    println!(
-      "{:<6} {:<8} {:<22} {:<22} {:<8} {:<8} {:<10}",
-      c["id"].as_u64().unwrap_or(0),
-      container_type,
-      short_name,
-      short_cwd,
-      c["requestCount"].as_u64().unwrap_or(0),
-      c["errorCount"].as_u64().unwrap_or(0),
-      uptime_str,
-    );
+    rows.push(Row {
+      id: c["id"].as_u64().unwrap_or(0).to_string(),
+      typ: c["containerType"]
+        .as_str()
+        .unwrap_or("run")
+        .to_string(),
+      name,
+      cwd,
+      reqs: c["requestCount"].as_u64().unwrap_or(0).to_string(),
+      errs: c["errorCount"].as_u64().unwrap_or(0).to_string(),
+      uptime,
+    });
   }
+
+  // Column widths: max of header and all values, plus padding
+  let headers = ["ID", "TYPE", "NAME", "CWD", "REQS", "ERRS", "UPTIME"];
+  let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
+  for r in &rows {
+    let vals = [&r.id, &r.typ, &r.name, &r.cwd, &r.reqs, &r.errs, &r.uptime];
+    for (i, v) in vals.iter().enumerate() {
+      widths[i] = widths[i].max(v.len());
+    }
+  }
+
+  // Print table
+  let sep: String = widths
+    .iter()
+    .map(|w| "\u{2500}".repeat(w + 2))
+    .collect::<Vec<_>>()
+    .join("\u{253C}");
+
+  // Top border
+  println!(
+    "\u{250C}{}\u{2510}",
+    widths
+      .iter()
+      .map(|w| "\u{2500}".repeat(w + 2))
+      .collect::<Vec<_>>()
+      .join("\u{252C}")
+  );
+
+  // Header
+  let header_cells: Vec<String> = headers
+    .iter()
+    .zip(widths.iter())
+    .map(|(h, w)| format!(" {:<width$} ", h, width = w))
+    .collect();
+  println!("\u{2502}{}\u{2502}", header_cells.join("\u{2502}"));
+
+  // Header separator
+  println!("\u{251C}{}\u{2524}", sep);
+
+  // Rows
+  for r in &rows {
+    let vals = [&r.id, &r.typ, &r.name, &r.cwd, &r.reqs, &r.errs, &r.uptime];
+    let cells: Vec<String> = vals
+      .iter()
+      .zip(widths.iter())
+      .map(|(v, w)| format!(" {:<width$} ", v, width = w))
+      .collect();
+    println!("\u{2502}{}\u{2502}", cells.join("\u{2502}"));
+  }
+
+  // Bottom border
+  println!(
+    "\u{2514}{}\u{2518}",
+    widths
+      .iter()
+      .map(|w| "\u{2500}".repeat(w + 2))
+      .collect::<Vec<_>>()
+      .join("\u{2534}")
+  );
 
   Ok(0)
 }
