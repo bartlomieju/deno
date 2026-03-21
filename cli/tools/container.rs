@@ -10,6 +10,7 @@ use deno_core::anyhow;
 use deno_core::error::AnyError;
 use deno_core::serde_json;
 
+use crate::args::ContainerExecFlags;
 use crate::args::ContainerFlags;
 use crate::args::ContainerKillFlags;
 use crate::args::ContainerLogsFlags;
@@ -107,6 +108,7 @@ fn start_daemon() -> Result<(), AnyError> {
         .arg("run")
         .arg("-A")
         .arg("--unstable-worker-options")
+        .arg("--unstable-ffi")
         .arg(&script)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -126,6 +128,7 @@ fn start_daemon() -> Result<(), AnyError> {
     .arg("run")
     .arg("-A")
     .arg("--unstable-worker-options")
+    .arg("--unstable-ffi")
     .arg(&script)
     .stdin(std::process::Stdio::null())
     .stdout(std::process::Stdio::null())
@@ -580,3 +583,175 @@ pub async fn logs_command(
 
   Ok(0)
 }
+
+/// `deno container exec <command>` — run a program with PTY in the daemon
+pub async fn exec_command(
+  exec_flags: ContainerExecFlags,
+) -> Result<i32, AnyError> {
+  ensure_daemon()?;
+
+  // Get terminal size
+  let (rows, cols) = term_size();
+
+  // Send exec command
+  let path = socket_path();
+  let stream = std::os::unix::net::UnixStream::connect(&path)
+    .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+
+  // No read timeout for exec — the session can last indefinitely
+  let _ = stream.set_read_timeout(None);
+
+  // Send the exec JSON command
+  {
+    let mut writer = std::io::BufWriter::new(&stream);
+    let cmd = serde_json::json!({
+      "type": "exec",
+      "args": exec_flags.args,
+      "cwd": exec_flags.cwd,
+      "rows": rows,
+      "cols": cols,
+    });
+    let mut msg = serde_json::to_string(&cmd)?;
+    msg.push('\n');
+    writer.write_all(msg.as_bytes())?;
+    writer.flush()?;
+  }
+
+  // Read the JSON response (one line)
+  {
+    let mut reader = std::io::BufReader::new(&stream);
+    let mut line = String::new();
+    let _ = stream
+      .set_read_timeout(Some(std::time::Duration::from_secs(10)));
+    reader.read_line(&mut line)?;
+    let resp: serde_json::Value = serde_json::from_str(&line)?;
+    if resp["ok"] != true {
+      return Err(anyhow::anyhow!(
+        "Exec failed: {}",
+        resp["error"].as_str().unwrap_or("Unknown error")
+      ));
+    }
+    eprintln!(
+      "Container {} attached (PTY). Press Ctrl+C to exit.",
+      resp["id"]
+    );
+  }
+
+  // Now switch to raw binary I/O
+  let _ = stream.set_read_timeout(None);
+  let _ = stream.set_nonblocking(false);
+
+  // Put terminal into raw mode (only if stdin is a TTY)
+  let is_tty = unsafe { libc::isatty(libc::STDIN_FILENO) == 1 };
+  let orig_termios = if is_tty {
+    Some(enter_raw_mode()?)
+  } else {
+    None
+  };
+
+  // Clone the stream for the two threads
+  let stream_read = stream.try_clone()?;
+  let stream_write = stream.try_clone()?;
+
+  // Thread 1: socket → stdout (PTY output → terminal)
+  let stdout_handle = std::thread::spawn(move || {
+    let mut buf = [0u8; 16384];
+    let mut stdout = std::io::stdout().lock();
+    loop {
+      let mut reader = &stream_read;
+      match std::io::Read::read(&mut reader, &mut buf) {
+        Ok(0) => break,
+        Ok(n) => {
+          let _ = stdout.write_all(&buf[..n]);
+          let _ = stdout.flush();
+        }
+        Err(_) => break,
+      }
+    }
+  });
+
+  // Thread 2: stdin → socket (terminal input → PTY)
+  let stdin_handle = std::thread::spawn(move || {
+    let mut buf = [0u8; 4096];
+    let stdin = std::io::stdin();
+    let mut stdin = stdin.lock();
+    let mut writer = &stream_write;
+    loop {
+      match std::io::Read::read(&mut stdin, &mut buf) {
+        Ok(0) => break,
+        Ok(n) => {
+          if std::io::Write::write_all(&mut writer, &buf[..n]).is_err() {
+            break;
+          }
+          let _ = std::io::Write::flush(&mut writer);
+        }
+        Err(_) => break,
+      }
+    }
+  });
+
+  // Wait for the output thread to finish (subprocess exited)
+  let _ = stdout_handle.join();
+
+  // Restore terminal
+  if let Some(ref orig) = orig_termios {
+    restore_termios(orig);
+  }
+
+  // The input thread will exit when stdin is closed or the stream disconnects
+  // Don't wait for it — it may be blocked on stdin read
+  drop(stdin_handle);
+
+  eprintln!("\nSession ended.");
+  Ok(0)
+}
+
+#[cfg(unix)]
+fn term_size() -> (u16, u16) {
+  // Try ioctl TIOCGWINSZ
+  unsafe {
+    let mut ws: libc::winsize = std::mem::zeroed();
+    if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) == 0
+      && ws.ws_row > 0
+    {
+      return (ws.ws_row, ws.ws_col);
+    }
+  }
+  (24, 80)
+}
+
+#[cfg(not(unix))]
+fn term_size() -> (u16, u16) {
+  (24, 80)
+}
+
+#[cfg(unix)]
+fn enter_raw_mode() -> Result<libc::termios, AnyError> {
+  unsafe {
+    let mut orig: libc::termios = std::mem::zeroed();
+    if libc::tcgetattr(libc::STDIN_FILENO, &mut orig) != 0 {
+      return Err(anyhow::anyhow!("tcgetattr failed"));
+    }
+    let mut raw = orig;
+    libc::cfmakeraw(&mut raw);
+    if libc::tcsetattr(libc::STDIN_FILENO, libc::TCSAFLUSH, &raw) != 0 {
+      return Err(anyhow::anyhow!("tcsetattr failed"));
+    }
+    Ok(orig)
+  }
+}
+
+#[cfg(unix)]
+fn restore_termios(orig: &libc::termios) {
+  unsafe {
+    libc::tcsetattr(libc::STDIN_FILENO, libc::TCSAFLUSH, orig);
+  }
+}
+
+#[cfg(not(unix))]
+fn enter_raw_mode() -> Result<(), AnyError> {
+  Ok(())
+}
+
+#[cfg(not(unix))]
+fn restore_termios(_: &()) {}

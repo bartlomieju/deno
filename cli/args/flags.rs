@@ -304,6 +304,12 @@ pub struct ContainerLogsFlags {
   pub follow: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContainerExecFlags {
+  pub args: Vec<String>,
+  pub cwd: Option<String>,
+}
+
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct EvalFlags {
   pub print: bool,
@@ -663,6 +669,7 @@ pub enum DenoSubcommand {
   ContainerPs(ContainerPsFlags),
   ContainerKill(ContainerKillFlags),
   ContainerLogs(ContainerLogsFlags),
+  ContainerExec(ContainerExecFlags),
   Eval(EvalFlags),
   Fmt(FmtFlags),
   Init(InitFlags),
@@ -3127,6 +3134,19 @@ With resource limits:
               .required(true)
               .value_name("ID")
               .help("Container ID to kill"),
+          ),
+      )
+      .subcommand(
+        Command::new("exec")
+          .about("Run a program in the daemon with a PTY (interactive)")
+          .arg(
+            Arg::new("exec-args")
+              .num_args(1..)
+              .required(true)
+              .action(ArgAction::Append)
+              .trailing_var_arg(true)
+              .allow_hyphen_values(true)
+              .value_name("COMMAND"),
           ),
       )
       .subcommand(
@@ -6670,6 +6690,20 @@ fn container_parse(
         })?;
         flags.subcommand =
           DenoSubcommand::ContainerKill(ContainerKillFlags { id });
+        return Ok(());
+      }
+      "exec" => {
+        let args: Vec<String> = sub_matches
+          .remove_many::<String>("exec-args")
+          .map(|a| a.collect())
+          .unwrap_or_default();
+        flags.subcommand =
+          DenoSubcommand::ContainerExec(ContainerExecFlags {
+            args,
+            cwd: std::env::current_dir()
+              .ok()
+              .map(|p| p.display().to_string()),
+          });
         return Ok(());
       }
       "logs" => {

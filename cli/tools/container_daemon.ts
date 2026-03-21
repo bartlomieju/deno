@@ -2,6 +2,8 @@
 // Hosts all container isolates in a single process.
 // CLI clients connect via Unix domain socket to create/eval/kill containers.
 
+import { openPty, setWinSize, closeFd, readFd, writeFd, setNonBlocking } from "./container_pty.ts";
+
 // Use the OS temp dir to match the Rust client's std::env::temp_dir()
 function getTempDir(): string {
   // On macOS, Deno.env.get("TMPDIR") returns /var/folders/... which matches
@@ -366,6 +368,162 @@ async function handleCommand(cmd, conn) {
         containers.delete(cmd.id);
       }
       writeResponse(conn, { ok: true });
+      return;
+    }
+
+    case "exec": {
+      // Spawn a subprocess with a PTY and stream I/O over this connection.
+      // After the JSON response, the connection switches to raw binary mode.
+      const rows = cmd.rows || 24;
+      const cols = cmd.cols || 80;
+      const args: string[] = cmd.args || [];
+      const cwd = cmd.cwd || Deno.cwd();
+      const env: Record<string, string> = cmd.env || {};
+
+      let pty: { masterFd: number; slavePath: string };
+      try {
+        pty = openPty(rows, cols);
+      } catch (e) {
+        writeResponse(conn, { ok: false, error: `PTY allocation failed: ${e.message}` });
+        return;
+      }
+
+      // Build the command. The first arg is the program.
+      const program = args[0];
+      if (!program) {
+        closeFd(pty.masterFd);
+        writeResponse(conn, { ok: false, error: "No program specified" });
+        return;
+      }
+
+      // Resolve deno executable path for npm: specifiers
+      const denoExe = Deno.execPath();
+      let spawnArgs: string[];
+      let spawnProgram: string;
+      if (program.startsWith("npm:")) {
+        spawnProgram = denoExe;
+        spawnArgs = ["run", "-A", "--unstable-worker-options", program, ...args.slice(1)];
+      } else {
+        spawnProgram = program;
+        spawnArgs = args.slice(1);
+      }
+
+      // Spawn the subprocess with the PTY slave as stdio.
+      // We use Deno.Command but redirect stdio to the PTY slave fd
+      // via a shell wrapper that opens the slave device.
+      const shellCmd = [
+        "sh", "-c",
+        `exec < "${pty.slavePath}" > "${pty.slavePath}" 2>&1; exec ${
+          [spawnProgram, ...spawnArgs].map(a => `'${a.replace(/'/g, "'\\''")}'`).join(" ")
+        }`,
+      ];
+
+      const child = new Deno.Command(shellCmd[0], {
+        args: shellCmd.slice(1),
+        cwd,
+        env: {
+          ...Object.fromEntries(
+            Array.from(Object.entries(Deno.env.toObject()))
+          ),
+          ...env,
+          TERM: env.TERM || "xterm-256color",
+          COLORTERM: "truecolor",
+        },
+        stdin: "null",
+        stdout: "null",
+        stderr: "null",
+      }).spawn();
+
+      // Register as a container
+      const id = nextId++;
+      containers.set(id, {
+        container: null, // No JS container — this is a subprocess
+        entry: program,
+        cwd,
+        createdAt: Date.now(),
+        containerType: "exec",
+        action: null,
+        runCount: 0,
+        lastRun: null,
+        lastError: null,
+        logs: [],
+        logNextFrom: 0,
+        process: child,
+        ptyFd: pty.masterFd,
+      });
+
+      // Send success response with container ID. After this, connection
+      // switches to raw binary I/O.
+      writeResponse(conn, { ok: true, id, mode: "pty" });
+
+      // Set PTY master to non-blocking so reads don't block the event loop
+      setNonBlocking(pty.masterFd);
+
+      // Stream PTY master ↔ socket
+      const buf = new Uint8Array(16384);
+      let alive = true;
+
+      // PTY master → socket (non-blocking poll)
+      const readLoop = (async () => {
+        while (alive) {
+          try {
+            const n = readFd(pty.masterFd, buf);
+            if (n > 0) {
+              await conn.write(buf.subarray(0, n));
+            } else if (n === 0) {
+              // EOF
+              alive = false;
+              break;
+            } else {
+              // EAGAIN — no data available, yield
+              await new Promise((r) => setTimeout(r, 5));
+            }
+          } catch {
+            alive = false;
+            break;
+          }
+        }
+      })();
+
+      // Socket → PTY master (async reads from socket)
+      const writeLoop = (async () => {
+        const sbuf = new Uint8Array(16384);
+        while (alive) {
+          try {
+            const n = await conn.read(sbuf);
+            if (n === null) {
+              alive = false;
+              break;
+            }
+            // Check for resize escape: \x1b[8;<rows>;<cols>t
+            const data = sbuf.subarray(0, n);
+            const resizeMatch = new TextDecoder().decode(data).match(
+              /\x1b\[8;(\d+);(\d+)t/
+            );
+            if (resizeMatch) {
+              setWinSize(pty.masterFd, Number(resizeMatch[1]), Number(resizeMatch[2]));
+              const cleaned = new TextEncoder().encode(
+                new TextDecoder().decode(data).replace(/\x1b\[8;\d+;\d+t/g, "")
+              );
+              if (cleaned.length > 0) writeFd(pty.masterFd, cleaned);
+            } else {
+              writeFd(pty.masterFd, data);
+            }
+          } catch {
+            alive = false;
+            break;
+          }
+        }
+      })();
+
+      // Wait for the subprocess to exit
+      const status = await child.status;
+      alive = false;
+
+      // Clean up
+      closeFd(pty.masterFd);
+      containers.delete(id);
+      try { conn.close(); } catch { /* */ }
       return;
     }
 
