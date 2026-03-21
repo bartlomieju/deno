@@ -305,23 +305,31 @@ async function handleCommand(cmd, conn): Promise<string | void> {
 
       for (const [id, record] of containers) {
         const c = record.container;
-        if (c.closed) {
+
+        // For JS containers, check if closed
+        if (c && c.closed) {
           if (record.intervalHandle) clearInterval(record.intervalHandle);
           containers.delete(id);
           continue;
         }
-        const stats = c.stats();
+
+        const uptimeMs = Date.now() - record.createdAt;
         const entry: any = {
           id,
-          name: stats.name,
+          name: c ? c.name : record.entry,
           entry: record.entry,
           cwd: record.cwd,
           containerType: record.containerType || "run",
-          uptimeMs: stats.uptimeMs,
-          requestCount: stats.requestCount,
-          errorCount: stats.errorCount,
-          cpuUsage: stats.cpuUsage,
+          uptimeMs,
+          requestCount: c ? c.stats().requestCount : record.runCount || 0,
+          errorCount: c ? c.stats().errorCount : 0,
         };
+
+        if (c) {
+          const stats = c.stats();
+          entry.cpuUsage = stats.cpuUsage;
+        }
+
         if (record.containerType === "cron") {
           entry.cronExpr = record.cronExpr;
           entry.runCount = record.runCount || 0;
@@ -330,19 +338,23 @@ async function handleCommand(cmd, conn): Promise<string | void> {
         }
         list.push(entry);
 
-        // Query memory usage from the container (async)
-        memoryPromises.push(
-          c.memoryUsage()
-            .then((mem: any) => { entry.memory = mem; })
-            .catch(() => { /* container busy or closed */ })
-        );
+        // Query memory usage from JS containers
+        if (c) {
+          memoryPromises.push(
+            c.memoryUsage()
+              .then((mem: any) => { entry.memory = mem; })
+              .catch(() => { /* container busy or closed */ })
+          );
+        }
       }
 
       // Wait for all memory queries (with a timeout)
-      await Promise.race([
-        Promise.allSettled(memoryPromises),
-        new Promise((r) => setTimeout(r, 2000)),
-      ]);
+      if (memoryPromises.length > 0) {
+        await Promise.race([
+          Promise.allSettled(memoryPromises),
+          new Promise((r) => setTimeout(r, 2000)),
+        ]);
+      }
 
       writeResponse(conn, { ok: true, containers: list });
       return;
@@ -355,7 +367,9 @@ async function handleCommand(cmd, conn): Promise<string | void> {
         return;
       }
       if (record.intervalHandle) clearInterval(record.intervalHandle);
-      record.container.close();
+      if (record.container) record.container.close();
+      if (record.process) record.process.kill("SIGTERM");
+      if (record.ptyFd) closeFd(record.ptyFd);
       containers.delete(cmd.id);
       writeResponse(conn, { ok: true });
       return;
@@ -365,7 +379,9 @@ async function handleCommand(cmd, conn): Promise<string | void> {
       const record = containers.get(cmd.id);
       if (record) {
         if (record.intervalHandle) clearInterval(record.intervalHandle);
-        record.container.close();
+        if (record.container) record.container.close();
+        if (record.process) record.process.kill("SIGTERM");
+        if (record.ptyFd) closeFd(record.ptyFd);
         containers.delete(cmd.id);
       }
       writeResponse(conn, { ok: true });
@@ -373,13 +389,30 @@ async function handleCommand(cmd, conn): Promise<string | void> {
     }
 
     case "exec": {
-      // Spawn a subprocess with a PTY and stream I/O over this connection.
-      // After the JSON response, the connection switches to raw binary mode.
+      // Run a JS/TS/npm program as a child process of the daemon with a real PTY.
+      // After the JSON response, the connection switches to raw binary I/O.
       const rows = cmd.rows || 24;
       const cols = cmd.cols || 80;
       const args: string[] = cmd.args || [];
       const cwd = cmd.cwd || Deno.cwd();
       const env: Record<string, string> = cmd.env || {};
+
+      const specifier = args[0];
+      if (!specifier) {
+        writeResponse(conn, { ok: false, error: "No specifier provided" });
+        return;
+      }
+
+      // Only allow JS/TS files and npm: specifiers
+      const isNpm = specifier.startsWith("npm:");
+      const isJsTsFile = /\.(js|ts|mjs|mts|jsx|tsx)$/.test(specifier);
+      if (!isNpm && !isJsTsFile) {
+        writeResponse(conn, {
+          ok: false,
+          error: `Only JS/TS files and npm: specifiers are supported. Got: ${specifier}`,
+        });
+        return;
+      }
 
       let pty: { masterFd: number; slavePath: string };
       try {
@@ -389,57 +422,42 @@ async function handleCommand(cmd, conn): Promise<string | void> {
         return;
       }
 
-      // Build the command. The first arg is the program.
-      const program = args[0];
-      if (!program) {
-        closeFd(pty.masterFd);
-        writeResponse(conn, { ok: false, error: "No program specified" });
-        return;
-      }
-
-      // Resolve deno executable path for npm: specifiers
+      // Build the deno run command
       const denoExe = Deno.execPath();
-      let spawnArgs: string[];
-      let spawnProgram: string;
-      if (program.startsWith("npm:")) {
-        spawnProgram = denoExe;
-        spawnArgs = ["run", "-A", "--unstable-worker-options", program, ...args.slice(1)];
-      } else {
-        spawnProgram = program;
-        spawnArgs = args.slice(1);
-      }
+      const denoArgs = ["run", "-A", specifier, ...args.slice(1)];
 
-      // Spawn the subprocess with the PTY slave as stdio.
-      // We use Deno.Command but redirect stdio to the PTY slave fd
-      // via a shell wrapper that opens the slave device.
-      const shellCmd = [
-        "sh", "-c",
-        `exec < "${pty.slavePath}" > "${pty.slavePath}" 2>&1; exec ${
-          [spawnProgram, ...spawnArgs].map(a => `'${a.replace(/'/g, "'\\''")}'`).join(" ")
-        }`,
-      ];
+      // Spawn as a child of the daemon using a shell to redirect stdio
+      // to the PTY slave device. The shell `exec` replaces itself with
+      // the deno process so there's no extra shell process.
+      const shellScript = [
+        denoExe, ...denoArgs,
+      ].map(a => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
 
-      const child = new Deno.Command(shellCmd[0], {
-        args: shellCmd.slice(1),
+      const child = new Deno.Command("sh", {
+        args: [
+          "-c",
+          `exec < '${pty.slavePath}' > '${pty.slavePath}' 2>&1; exec ${shellScript}`,
+        ],
         cwd,
         env: {
-          ...Object.fromEntries(
-            Array.from(Object.entries(Deno.env.toObject()))
-          ),
+          ...Deno.env.toObject(),
           ...env,
           TERM: env.TERM || "xterm-256color",
           COLORTERM: "truecolor",
         },
-        stdin: "null",
-        stdout: "null",
-        stderr: "null",
+        stdin: "piped",
+        stdout: "piped",
+        stderr: "piped",
       }).spawn();
+
+      // Close the piped handles — we don't use them, stdio goes via PTY
+      try { child.stdin.close(); } catch { /* */ }
 
       // Register as a container
       const id = nextId++;
-      containers.set(id, {
-        container: null, // No JS container — this is a subprocess
-        entry: program,
+      const record: any = {
+        container: null,
+        entry: specifier,
         cwd,
         createdAt: Date.now(),
         containerType: "exec",
@@ -451,23 +469,22 @@ async function handleCommand(cmd, conn): Promise<string | void> {
         logNextFrom: 0,
         process: child,
         ptyFd: pty.masterFd,
-      });
+      };
+      containers.set(id, record);
 
-      // Send success response with container ID. After this, connection
-      // switches to raw binary I/O.
+      // Send success response. After this, connection is raw binary I/O.
       writeResponse(conn, { ok: true, id, mode: "pty" });
 
-      // Set PTY master to non-blocking so reads don't block the event loop
+      // Set PTY master to non-blocking for async-friendly reads
       setNonBlocking(pty.masterFd);
 
-      // Launch the PTY streaming as a background task.
-      // We return "exec_takeover" so handleConnection exits its loop
-      // and this task exclusively owns the connection.
+      // Launch PTY streaming as background task.
+      // Returns "exec_takeover" so handleConnection stops and we own the conn.
       (async () => {
         const buf = new Uint8Array(16384);
         let alive = true;
 
-        // PTY master → socket (non-blocking poll)
+        // PTY master → socket
         const readLoop = (async () => {
           while (alive) {
             try {
@@ -478,7 +495,7 @@ async function handleCommand(cmd, conn): Promise<string | void> {
                 alive = false;
                 break;
               } else {
-                // EAGAIN — no data available, yield
+                // EAGAIN — yield to event loop
                 await new Promise((r) => setTimeout(r, 5));
               }
             } catch {
@@ -488,7 +505,7 @@ async function handleCommand(cmd, conn): Promise<string | void> {
           }
         })();
 
-        // Socket → PTY master (async reads from socket)
+        // Socket → PTY master
         const writeLoop = (async () => {
           const sbuf = new Uint8Array(16384);
           while (alive) {
@@ -498,15 +515,14 @@ async function handleCommand(cmd, conn): Promise<string | void> {
                 alive = false;
                 break;
               }
-              // Check for resize escape: \x1b[8;<rows>;<cols>t
               const data = sbuf.subarray(0, n);
-              const resizeMatch = new TextDecoder().decode(data).match(
-                /\x1b\[8;(\d+);(\d+)t/
-              );
+              // Check for resize escape: \x1b[8;<rows>;<cols>t
+              const str = new TextDecoder().decode(data);
+              const resizeMatch = str.match(/\x1b\[8;(\d+);(\d+)t/);
               if (resizeMatch) {
                 setWinSize(pty.masterFd, Number(resizeMatch[1]), Number(resizeMatch[2]));
                 const cleaned = new TextEncoder().encode(
-                  new TextDecoder().decode(data).replace(/\x1b\[8;\d+;\d+t/g, "")
+                  str.replace(/\x1b\[8;\d+;\d+t/g, ""),
                 );
                 if (cleaned.length > 0) writeFd(pty.masterFd, cleaned);
               } else {
@@ -519,11 +535,20 @@ async function handleCommand(cmd, conn): Promise<string | void> {
           }
         })();
 
-        // Wait for the subprocess to exit
+        // Wait for process to exit
         await child.status;
         alive = false;
 
-        // Clean up
+        // Drain remaining PTY output
+        await new Promise((r) => setTimeout(r, 100));
+        try {
+          while (true) {
+            const n = readFd(pty.masterFd, buf);
+            if (n <= 0) break;
+            await conn.write(buf.subarray(0, n));
+          }
+        } catch { /* */ }
+
         closeFd(pty.masterFd);
         containers.delete(id);
         try { conn.close(); } catch { /* */ }
