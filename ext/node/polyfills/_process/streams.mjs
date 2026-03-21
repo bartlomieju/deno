@@ -246,12 +246,19 @@ export const initStdin = (warmup = false) => {
       } catch {
         // uv_tty_init may fail if the OS fd doesn't match the resource
         // (e.g. container worker with PTY stdio but process fd 0 is /dev/null).
-        // Fall back to a readable stream backed by Deno.stdin.
+        // Fall back to a readable stream backed by Deno.stdin, with TTY-like
+        // methods so code that expects a TTY handle doesn't crash.
         stdin = new Readable({
           highWaterMark: 64 * 1024,
           autoDestroy: false,
           read: _read,
         });
+        // Add TTY handle methods that callers expect
+        stdin.ref = () => stdin;
+        stdin.unref = () => stdin;
+        stdin.setRawMode = () => stdin;
+        stdin.isRaw = false;
+        stdin.isTTY = io.stdin?.isTerminal() ?? false;
       }
       break;
     }

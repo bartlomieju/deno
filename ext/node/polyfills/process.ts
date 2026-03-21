@@ -1264,11 +1264,14 @@ internals.__bootstrapNodeProcess = function (
         stdout = process.stdout = new TTYWriteStream(1);
       } catch {
         // fd 1 is not a TTY (e.g. worker with custom PTY stdio).
-        // Fall back to non-TTY stream wrapping Deno.stdout.
+        // Fall back to non-TTY stream wrapping Deno.stdout,
+        // with TTY handle methods so callers don't crash.
         stdout = process.stdout = createWritableStdioStream(
           io.stdout,
           "stdout",
         );
+        stdout.ref = () => stdout;
+        stdout.unref = () => stdout;
       }
       if (stdout instanceof TTYWriteStream) {
         // Match Node.js: stdio streams are indestructible.
@@ -1298,6 +1301,8 @@ internals.__bootstrapNodeProcess = function (
           io.stderr,
           "stderr",
         );
+        stderr.ref = () => stderr;
+        stderr.unref = () => stderr;
       }
       if (stderr instanceof TTYWriteStream) {
         stderr._isStdio = true;
