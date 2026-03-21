@@ -298,6 +298,12 @@ pub struct ContainerKillFlags {
   pub id: u64,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContainerLogsFlags {
+  pub id: u64,
+  pub follow: bool,
+}
+
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct EvalFlags {
   pub print: bool,
@@ -656,6 +662,7 @@ pub enum DenoSubcommand {
   Container(ContainerFlags),
   ContainerPs(ContainerPsFlags),
   ContainerKill(ContainerKillFlags),
+  ContainerLogs(ContainerLogsFlags),
   Eval(EvalFlags),
   Fmt(FmtFlags),
   Init(InitFlags),
@@ -3120,6 +3127,23 @@ With resource limits:
               .required(true)
               .value_name("ID")
               .help("Container ID to kill"),
+          ),
+      )
+      .subcommand(
+        Command::new("logs")
+          .about("Show logs from a container")
+          .arg(
+            Arg::new("container-id")
+              .required(true)
+              .value_name("ID")
+              .help("Container ID to show logs for"),
+          )
+          .arg(
+            Arg::new("follow")
+              .short('f')
+              .long("follow")
+              .help("Follow log output (like tail -f)")
+              .action(ArgAction::SetTrue),
           ),
       )
   })
@@ -6646,6 +6670,21 @@ fn container_parse(
         })?;
         flags.subcommand =
           DenoSubcommand::ContainerKill(ContainerKillFlags { id });
+        return Ok(());
+      }
+      "logs" => {
+        let id_str = sub_matches
+          .remove_one::<String>("container-id")
+          .unwrap();
+        let id: u64 = id_str.parse().map_err(|_| {
+          clap::Error::raw(
+            clap::error::ErrorKind::InvalidValue,
+            format!("Invalid container ID: {id_str}\n"),
+          )
+        })?;
+        let follow = sub_matches.get_flag("follow");
+        flags.subcommand =
+          DenoSubcommand::ContainerLogs(ContainerLogsFlags { id, follow });
         return Ok(());
       }
       _ => {}

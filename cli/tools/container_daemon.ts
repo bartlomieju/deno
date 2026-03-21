@@ -112,6 +112,25 @@ function cronMatches(schedule: CronSchedule, date: Date): boolean {
   );
 }
 
+async function collectLogs(record: any) {
+  if (!record.container || record.container.closed) return;
+  try {
+    const resp = await record.container.logs({ from: record.logNextFrom });
+    // resp is the raw string from getLogs — parse it
+    // Actually, logs() returns the result via the message channel,
+    // which comes back as the deserialized response object
+    if (resp && typeof resp === "string") {
+      try {
+        const parsed = JSON.parse(resp);
+        if (parsed.logs) {
+          for (const l of parsed.logs) record.logs.push(l);
+          record.logNextFrom = parsed.nextFrom;
+        }
+      } catch { /* not JSON, ignore */ }
+    }
+  } catch { /* container may be busy or closed */ }
+}
+
 async function executeCronAction(record: any) {
   if (!record.action) return;
   record.runCount = (record.runCount || 0) + 1;
@@ -126,6 +145,7 @@ async function executeCronAction(record: any) {
   } catch (e) {
     record.lastError = e.message;
   }
+  collectLogs(record);
 }
 
 // Cron scheduler — checks every second
@@ -188,6 +208,8 @@ async function handleCommand(cmd, conn) {
         runCount: 0,
         lastRun: null,
         lastError: null,
+        logs: [],       // accumulated log lines
+        logNextFrom: 0, // next offset to fetch from container
       };
 
       if (isCron) {
@@ -224,6 +246,8 @@ async function handleCommand(cmd, conn) {
       } catch (e) {
         writeResponse(conn, { ok: false, error: e.message });
       }
+      // Collect logs after eval
+      collectLogs(record);
       return;
     }
 
@@ -239,6 +263,7 @@ async function handleCommand(cmd, conn) {
       } catch (e) {
         writeResponse(conn, { ok: false, error: e.message });
       }
+      collectLogs(record);
       return;
     }
 
@@ -254,6 +279,21 @@ async function handleCommand(cmd, conn) {
       } catch (e) {
         writeResponse(conn, { ok: false, error: e.message });
       }
+      collectLogs(record);
+      return;
+    }
+
+    case "logs": {
+      const record = containers.get(cmd.id);
+      if (!record) {
+        writeResponse(conn, { ok: false, error: `Container ${cmd.id} not found` });
+        return;
+      }
+      // Fetch latest logs from container first
+      await collectLogs(record);
+      const from = cmd.from || 0;
+      const logs = record.logs.slice(from);
+      writeResponse(conn, { ok: true, logs, total: record.logs.length });
       return;
     }
 

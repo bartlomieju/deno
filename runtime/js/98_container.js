@@ -75,9 +75,33 @@ let insideContainer = false;
 // which is set up by the worker runtime bootstrap before this code runs.
 const CONTAINER_BOOTSTRAP = `
 "use strict";
+// Capture console output into a log buffer
+globalThis.__logs = [];
+const __origConsole = {
+  log: console.log.bind(console),
+  error: console.error.bind(console),
+  warn: console.warn.bind(console),
+  info: console.info.bind(console),
+  debug: console.debug.bind(console),
+};
+function __capture(level, args) {
+  const line = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
+  globalThis.__logs.push({ ts: Date.now(), level, msg: line });
+  // Keep max 10000 lines to prevent unbounded growth
+  if (globalThis.__logs.length > 10000) globalThis.__logs.shift();
+}
+console.log = (...args) => { __capture("LOG", args); __origConsole.log(...args); };
+console.error = (...args) => { __capture("ERR", args); __origConsole.error(...args); };
+console.warn = (...args) => { __capture("WRN", args); __origConsole.warn(...args); };
+console.info = (...args) => { __capture("INF", args); __origConsole.info(...args); };
+console.debug = (...args) => { __capture("DBG", args); __origConsole.debug(...args); };
+
 globalThis.onmessage = async function(e) {
   const msg = e.data;
   let response;
+
+  // Track log position so we can return new logs with each response
+  const logStart = globalThis.__logs.length;
 
   try {
     if (msg.type === "eval") {
@@ -85,7 +109,6 @@ globalThis.onmessage = async function(e) {
       const resolved = await result;
       response = { ok: true, value: typeof resolved === "undefined" ? undefined : String(resolved) };
     } else if (msg.type === "evalAsync") {
-      // Wraps code in an async function to support top-level await
       const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
       const fn = new AsyncFunction(msg.code);
       const resolved = await fn();
@@ -93,6 +116,13 @@ globalThis.onmessage = async function(e) {
     } else if (msg.type === "execFile") {
       const mod = await import(msg.path);
       response = { ok: true, value: mod.default !== undefined ? String(mod.default) : undefined };
+    } else if (msg.type === "getLogs") {
+      // Return logs from the requested offset
+      const from = msg.from || 0;
+      const logs = globalThis.__logs.slice(from);
+      response = { ok: true, value: JSON.stringify({ logs, nextFrom: globalThis.__logs.length }) };
+      globalThis.postMessage(response);
+      return;
     } else if (msg.type === "close") {
       globalThis.close();
       return;
@@ -102,6 +132,9 @@ globalThis.onmessage = async function(e) {
   } catch (e) {
     response = { ok: false, error: String(e), name: e?.name, stack: e?.stack };
   }
+
+  // Attach new log lines to the response
+  response.logs = globalThis.__logs.slice(logStart);
 
   globalThis.postMessage(response);
 };
@@ -331,6 +364,11 @@ class Container {
       ? parseTimeout(options.timeout)
       : undefined;
     return await this.#sendRequest({ type: "execFile", path }, timeout);
+  }
+
+  async logs(options = {}) {
+    const from = options.from || 0;
+    return await this.#sendRequest({ type: "getLogs", from });
   }
 
   async execNpm(packageName, options = {}) {

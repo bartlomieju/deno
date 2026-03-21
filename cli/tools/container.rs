@@ -12,6 +12,7 @@ use deno_core::serde_json;
 
 use crate::args::ContainerFlags;
 use crate::args::ContainerKillFlags;
+use crate::args::ContainerLogsFlags;
 use crate::args::DenoSubcommand;
 use crate::args::EvalFlags;
 use crate::args::Flags;
@@ -441,4 +442,61 @@ pub async fn kill_command(
       resp["error"].as_str().unwrap_or("Unknown error")
     ))
   }
+}
+
+/// `deno container logs <id>` — show logs from a container
+pub async fn logs_command(
+  logs_flags: ContainerLogsFlags,
+) -> Result<i32, AnyError> {
+  ensure_daemon()?;
+
+  let mut from: u64 = 0;
+
+  loop {
+    let resp = daemon_request(&serde_json::json!({
+      "type": "logs",
+      "id": logs_flags.id,
+      "from": from,
+    }))?;
+
+    if resp["ok"] != true {
+      return Err(anyhow::anyhow!(
+        "Failed to get logs for container {}: {}",
+        logs_flags.id,
+        resp["error"].as_str().unwrap_or("Unknown error")
+      ));
+    }
+
+    if let Some(logs) = resp["logs"].as_array() {
+      for entry in logs {
+        let ts = entry["ts"].as_u64().unwrap_or(0);
+        let level = entry["level"].as_str().unwrap_or("LOG");
+        let msg = entry["msg"].as_str().unwrap_or("");
+
+        // Format timestamp as HH:MM:SS.mmm
+        let secs = (ts / 1000) % 86400;
+        let ms = ts % 1000;
+        let h = secs / 3600;
+        let m = (secs % 3600) / 60;
+        let s = secs % 60;
+
+        println!(
+          "{:02}:{:02}:{:02}.{:03} [{}] {}",
+          h, m, s, ms, level, msg
+        );
+      }
+    }
+
+    let total = resp["total"].as_u64().unwrap_or(0);
+    from = total;
+
+    if !logs_flags.follow {
+      break;
+    }
+
+    // In follow mode, poll every second
+    std::thread::sleep(std::time::Duration::from_secs(1));
+  }
+
+  Ok(0)
 }

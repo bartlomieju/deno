@@ -168,6 +168,9 @@ async fn run_subcommand(
     DenoSubcommand::ContainerKill(kill_flags) => spawn_subcommand(async {
       tools::container::kill_command(kill_flags).await
     }),
+    DenoSubcommand::ContainerLogs(logs_flags) => spawn_subcommand(async {
+      tools::container::logs_command(logs_flags).await
+    }),
     DenoSubcommand::Eval(eval_flags) => spawn_subcommand(async {
       tools::run::eval_command(Arc::new(flags), eval_flags).await
     }),
