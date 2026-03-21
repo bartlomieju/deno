@@ -114,6 +114,19 @@ function cronMatches(schedule: CronSchedule, date: Date): boolean {
   );
 }
 
+async function getProcessMemory(pid: number): Promise<number> {
+  // Get RSS in bytes for a process via `ps`
+  const cmd = new Deno.Command("ps", {
+    args: ["-o", "rss=", "-p", String(pid)],
+    stdout: "piped",
+    stderr: "null",
+  });
+  const output = await cmd.output();
+  const rss = parseInt(new TextDecoder().decode(output.stdout).trim(), 10);
+  // ps reports RSS in KB
+  return isNaN(rss) ? 0 : rss * 1024;
+}
+
 async function collectLogs(record: any) {
   if (!record.container || record.container.closed) return;
   try {
@@ -338,12 +351,22 @@ async function handleCommand(cmd, conn): Promise<string | void> {
         }
         list.push(entry);
 
-        // Query memory usage from JS containers
+        // Query memory usage
         if (c) {
+          // JS container: query V8 heap via message
           memoryPromises.push(
             c.memoryUsage()
               .then((mem: any) => { entry.memory = mem; })
               .catch(() => { /* container busy or closed */ })
+          );
+        } else if (record.process) {
+          // exec container: get RSS from child process
+          memoryPromises.push(
+            getProcessMemory(record.process.pid)
+              .then((rss) => {
+                if (rss > 0) entry.memory = { rss, heapUsed: rss };
+              })
+              .catch(() => { /* */ })
           );
         }
       }
