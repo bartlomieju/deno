@@ -1,0 +1,17 @@
+{
+  "tasks": {
+    "dev": "deno run -A --watch=static/,routes/ dev.ts"
+  },
+  "imports": {
+    "$fresh/": "https://deno.land/x/fresh@1.7.3/",
+    "preact": "https://esm.sh/preact@10.24.3",
+    "preact/": "https://esm.sh/preact@10.24.3/",
+    "preact-render-to-string": "https://esm.sh/*preact-render-to-string@6.5.11",
+    "@preact/signals": "https://esm.sh/*@preact/signals@1.3.0",
+    "@preact/signals-core": "https://esm.sh/*@preact/signals-core@1.8.0"
+  },
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
+  }
+}
